@@ -60,11 +60,13 @@ def callback():
             'code': session_code
         }, headers={'Accept': 'application/json'})
 
-        r.raise_for_status()  # Raise an exception for bad responses
+        r.raise_for_status()
 
         access_token = r.json()['access_token']
         session['access_token'] = access_token
-        app.config['GITHUB_ACCESS_TOKEN'] = access_token
+        app.config['GITHUB_ACCESS_TOKEN'] = access_token  # Set the token in app config
+
+        app.logger.info(f"Access token set in app config: {access_token[:10]}...")  # Log first 10 chars for verification
 
         # Get user info
         user_response = requests.get('https://api.github.com/user', headers={'Authorization': f'token {access_token}'})
@@ -73,16 +75,8 @@ def callback():
         
         app.logger.info(f"Successfully obtained access token for user: {session['github_username']}")
         return redirect(url_for('list_repos'))
-    except requests.exceptions.RequestException as e:
-        error_message = f"Error during GitHub API request: {str(e)}"
-        app.logger.error(error_message)
-        return render_template_string(f"<html><body><h1>{error_message}</h1></body></html>")
-    except KeyError:
-        error_message = f"Failed to get access token from GitHub response: {r.text}"
-        app.logger.error(error_message)
-        return render_template_string(f"<html><body><h1>{error_message}</h1></body></html>")
     except Exception as e:
-        error_message = f"Unexpected error: {str(e)}"
+        error_message = f"Error during GitHub OAuth flow: {str(e)}"
         app.logger.error(error_message)
         return render_template_string(f"<html><body><h1>{error_message}</h1></body></html>")
 
@@ -192,7 +186,11 @@ def webhook():
     access_token = app.config.get('GITHUB_ACCESS_TOKEN')
     if not access_token:
         app.logger.error("No access token found in app config")
+        app.logger.info(f"App config keys: {app.config.keys()}")  # Log all keys in app config
         return '', 200
+
+    # Rest of the webhook function remains the same
+    ...
 
     if 'ref' in payload:
         if payload['ref'] == 'refs/heads/main':  # or whichever branch you're interested in
@@ -222,11 +220,11 @@ def webhook():
 
 @app.route('/check_token')
 def check_token():
-    access_token = app.config.get('GITHUB_ACCESS_TOKEN')
-    if access_token:
-        return "Access token is set", 200
+    token = app.config.get('GITHUB_ACCESS_TOKEN')
+    if token:
+        return f"Access token is set in app config: {token[:10]}...", 200
     else:
-        return "No access token found", 404
+        return "No access token found in app config", 404
 
     headers = {'Authorization': f'token {access_token}'}
     r = requests.get('https://api.github.com/user', headers=headers)
