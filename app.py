@@ -105,12 +105,12 @@ def list_repos():
         return render_template_string(f"""
         <html>
         <body>
-            <h1>Select repositories to set up webhooks:</h1>
-            <form action="/setup_webhooks" method="post">
+            <h1>Select repositories to fetch commits:</h1>
+            <form action="/fetch_commits" method="post">
                 <ul>
                     {"".join(repo_list)}
                 </ul>
-                <input type="submit" value="Set up webhooks">
+                <input type="submit" value="Fetch Commits">
             </form>
             <br>
             <a href="/check_token">Check Token Scopes</a>
@@ -122,8 +122,8 @@ def list_repos():
         app.logger.error(error_message)
         return render_template_string(f"<html><body><h1>{error_message}</h1></body></html>")
 
-@app.route('/setup_webhooks', methods=['POST'])
-def setup_webhooks():
+@app.route('/fetch_commits', methods=['POST'])
+def fetch_commits():
     access_token = session.get('access_token')
     if not access_token:
         return render_template_string("<html><body><h1>Error: No access token found. Please log in again.</h1></body></html>")
@@ -132,53 +132,45 @@ def setup_webhooks():
     
     try:
         headers = {'Authorization': f'token {access_token}', 'Accept': 'application/vnd.github.v3+json'}
-        webhook_url = f"https://{request.host}/webhook"
-        
-        setup_results = []
-        for repo in selected_repos:
-            # Check if user has admin rights to the repo
-            repo_url = f"https://api.github.com/repos/{repo}"
-            repo_response = requests.get(repo_url, headers=headers)
-            repo_data = repo_response.json()
-            
-            app.logger.debug(f"Repo data for {repo}: {json.dumps(repo_data)}")
-            
-            if not repo_data.get('permissions', {}).get('admin', False):
-                setup_results.append(f"Skipped {repo}: You don't have admin rights to this repository")
-                continue
+        commit_details = []
 
-            webhook_data = {
-                'name': 'web',
-                'active': True,
-                'events': ['push'],
-                'config': {
-                    'url': webhook_url,
-                    'content_type': 'json'
-                }
-            }
-            webhook_url = f"https://api.github.com/repos/{repo}/hooks"
-            webhook_response = requests.post(webhook_url, headers=headers, json=webhook_data)
-            
-            app.logger.debug(f"Webhook response for {repo}: {webhook_response.status_code} - {webhook_response.text}")
-            
-            if webhook_response.status_code != 201:
-                setup_results.append(f"Failed to set up webhook for {repo}: {webhook_response.text}")
-            else:
-                setup_results.append(f"Successfully set up webhook for {repo}")
+        for repo in selected_repos:
+            commits_url = f"https://api.github.com/repos/{repo}/commits"
+            commits_response = requests.get(commits_url, headers=headers)
+            commits_response.raise_for_status()
+            commits = commits_response.json()
+
+            for commit in commits:
+                commit_sha = commit['sha']
+                commit_url = f"https://api.github.com/repos/{repo}/commits/{commit_sha}"
+                commit_response = requests.get(commit_url, headers=headers)
+                commit_response.raise_for_status()
+                commit_data = commit_response.json()
+
+                commit_message = commit_data['commit']['message']
+                files_changed = commit_data['files']
+
+                commit_details.append(f"<h3>Repository: {repo}</h3>")
+                commit_details.append(f"<p>Commit: {commit_message}</p>")
+                commit_details.append("<ul>")
+                for file in files_changed:
+                    filename = file['filename']
+                    status = file['status']
+                    patch = file.get('patch', '')
+                    commit_details.append(f"<li><strong>{filename}</strong> ({status})<pre>{patch}</pre></li>")
+                commit_details.append("</ul>")
 
         return render_template_string(f"""
         <html>
         <body>
-            <h1>Webhook Setup Results:</h1>
-            <ul>
-                {"".join(f"<li>{result}</li>" for result in setup_results)}
-            </ul>
-            <a href="/check_token">Check Token Scopes</a>
+            <h1>Commit Details:</h1>
+            {"".join(commit_details)}
+            <a href="/list_repos">Back to Repos</a>
         </body>
         </html>
         """)
     except Exception as e:
-        error_message = f"Error setting up webhooks: {str(e)}"
+        error_message = f"Error fetching commits: {str(e)}"
         app.logger.error(error_message)
         return render_template_string(f"<html><body><h1>{error_message}</h1></body></html>")
 
@@ -234,6 +226,3 @@ def check_token():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
-
-if else 32
-if __BOBBY__
