@@ -1,21 +1,13 @@
 from flask import Flask, redirect, request, render_template_string, session, url_for
-from flask_session import Session
 import os
 import requests
 import logging
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 import json
-import redis
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.urandom(24)
-app.config['SESSION_TYPE'] = 'redis'
-app.config['SESSION_PERMANENT'] = False
-app.config['SESSION_USE_SIGNER'] = True
-app.config['SESSION_REDIS'] = redis.from_url(os.environ.get('REDIS_URL'))
-
-Session(app)
+app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24)
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
