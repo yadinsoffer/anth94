@@ -1,9 +1,10 @@
-from flask import Flask, redirect, request, render_template_string, session
+from flask import Flask, redirect, request, render_template_string, session, url_for
 import os
 import requests
 import logging
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
+import json
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -34,7 +35,7 @@ def home():
 @app.route('/login')
 def login():
     github_client_id = os.environ.get('GITHUB_CLIENT_ID')
-    return redirect(f'https://github.com/login/oauth/authorize?client_id={github_client_id}&scope=repo')
+    return redirect(f'https://github.com/login/oauth/authorize?client_id={github_client_id}&scope=repo,admin:repo_hook')
 
 @app.route('/callback')
 def callback():
@@ -66,9 +67,9 @@ def callback():
 
         access_token = r.json()['access_token']
         session['access_token'] = access_token
-        success_message = f"Logged in successfully! Access token: {access_token[:10]}..."
-        app.logger.debug(success_message)
-        return render_template_string(f"<html><body><h1>{success_message}</h1></body></html>")
+        
+        # Redirect to setup_webhooks after successful login
+        return redirect(url_for('setup_webhooks'))
     except requests.exceptions.RequestException as e:
         error_message = f"Error during GitHub API request: {str(e)}"
         app.logger.error(error_message)
@@ -82,6 +83,39 @@ def callback():
         app.logger.error(error_message)
         return render_template_string(f"<html><body><h1>{error_message}</h1></body></html>")
 
+@app.route('/setup_webhooks')
+def setup_webhooks():
+    access_token = session.get('access_token')
+    if not access_token:
+        return "Please log in first", 401
+
+    # Fetch user's repositories
+    repos_url = 'https://api.github.com/user/repos'
+    headers = {'Authorization': f'token {access_token}'}
+    repos_response = requests.get(repos_url, headers=headers)
+    repos = repos_response.json()
+
+    webhook_url = f"https://{request.host}/webhook"
+    
+    for repo in repos:
+        # Set up webhook for each repository
+        webhook_data = {
+            'name': 'web',
+            'active': True,
+            'events': ['push'],
+            'config': {
+                'url': webhook_url,
+                'content_type': 'json'
+            }
+        }
+        webhook_url = f"https://api.github.com/repos/{repo['full_name']}/hooks"
+        webhook_response = requests.post(webhook_url, headers=headers, data=json.dumps(webhook_data))
+        
+        if webhook_response.status_code != 201:
+            app.logger.error(f"Failed to set up webhook for {repo['full_name']}: {webhook_response.text}")
+
+    return "Webhooks set up successfully!"
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     payload = request.json
@@ -91,8 +125,8 @@ def webhook():
         commits = payload['commits']
         
         message = Mail(
-            from_email='your-app@example.com',
-            to_emails='your-email@example.com',
+            from_email=os.environ.get('FROM_EMAIL', 'your-app@example.com'),
+            to_emails=os.environ.get('TO_EMAIL', 'your-email@example.com'),
             subject=f'New push to {repo}',
             html_content=f'<p>New push to {repo} by {pusher}</p>' +
                          '<ul>' +
