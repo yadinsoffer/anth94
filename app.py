@@ -16,20 +16,21 @@ logging.basicConfig(level=logging.DEBUG)
 def home():
     return render_template_string('''
     <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Anti - GitHub Login</title>
-        <style>
-            body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-            .login-button { padding: 10px 20px; font-size: 16px; background-color: #24292e; color: white; border: none; border-radius: 5px; cursor: pointer; }
-        </style>
-    </head>
-    <body>
-        <button class="login-button" onclick="window.location.href='/login'">Login with GitHub</button>
-    </body>
-    </html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anti - GitHub Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <button class="login-button" onclick="window.location.href='/login'">Login with GitHub</button>
+        </div>
+    </div>
+</body>
+</html>
     ''')
 
 @app.route('/login')
