@@ -229,14 +229,20 @@ def webhook():
 
 def send_to_chatgpt(file_content, commit_message):
     prompt = f"""
-    Analyze the following code changes:
+    You are an AI assistant specialized in analyzing code changes. Review the following code modification:
 
     Commit message: {commit_message}
 
     Modified code:
+    ```
     {file_content}
+    ```
 
-    Please provide a brief summary of the changes and any potential issues or improvements you notice.
+    Please provide the following analysis:
+    1. Provide an email in the format of a newsletter updates targeted at customers explaining what the changes in the code provides. what they will see different whea new features they get etc. 
+  
+
+    Format your as an email with emojis. 
     """
 
     try:
