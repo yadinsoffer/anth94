@@ -198,12 +198,18 @@ def webhook():
         return '', 200
 
     # Handle push event
-    if 'ref' in payload:
+      if 'ref' in payload:
         if payload['ref'] == 'refs/heads/main':  # or whichever branch you're interested in
             repo = payload['repository']['full_name']
-            pusher = payload['pusher']['name']
             commits = payload['commits']
             
+            access_token = session.get("access_token")
+            if not access_token:
+                app.logger.error("No access token found in session")
+                return '', 200
+
+            app.logger.debug(f"Using access token: {access_token[:10]}...")  # Log first 10 chars
+
             for commit in commits:
                 commit_sha = commit['id']
                 app.logger.info(f"Processing commit: {commit_sha}")
@@ -215,15 +221,14 @@ def webhook():
                 # Fetch content of modified files
                 for file_path in commit['modified']:
                     file_url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
-                    headers = {'Authorization': f'token {session.get("access_token")}'}
+                    headers = {'Authorization': f'token {access_token}'}
                     response = requests.get(file_url, headers=headers)
                     if response.status_code == 200:
                         file_content = base64.b64decode(response.json()['content']).decode('utf-8')
                         app.logger.info(f"Content of {file_path}:\n{file_content}")
                     else:
                         app.logger.error(f"Failed to fetch content of {file_path}: {response.status_code}")
-
-    # Handle other types of events here if needed
+                        app.logger.error(f"Response content: {response.text}")
 
     return '', 200
 
