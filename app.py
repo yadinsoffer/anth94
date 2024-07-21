@@ -35,7 +35,7 @@ def home():
 @app.route('/login')
 def login():
     github_client_id = os.environ.get('GITHUB_CLIENT_ID')
-    return redirect(f'https://github.com/login/oauth/authorize?client_id={github_client_id}&scope=repo,admin:repo_hook,read:user')
+    return redirect(f'https://github.com/login/oauth/authorize?client_id={github_client_id}&scope=repo admin:repo_hook user')
 
 @app.route('/callback')
 def callback():
@@ -111,6 +111,8 @@ def list_repos():
                 </ul>
                 <input type="submit" value="Set up webhooks">
             </form>
+            <br>
+            <a href="/check_token">Check Token Scopes</a>
         </body>
         </html>
         """)
@@ -138,6 +140,8 @@ def setup_webhooks():
             repo_response = requests.get(repo_url, headers=headers)
             repo_data = repo_response.json()
             
+            app.logger.debug(f"Repo data for {repo}: {json.dumps(repo_data)}")
+            
             if not repo_data.get('permissions', {}).get('admin', False):
                 setup_results.append(f"Skipped {repo}: You don't have admin rights to this repository")
                 continue
@@ -154,6 +158,8 @@ def setup_webhooks():
             webhook_url = f"https://api.github.com/repos/{repo}/hooks"
             webhook_response = requests.post(webhook_url, headers=headers, json=webhook_data)
             
+            app.logger.debug(f"Webhook response for {repo}: {webhook_response.status_code} - {webhook_response.text}")
+            
             if webhook_response.status_code != 201:
                 setup_results.append(f"Failed to set up webhook for {repo}: {webhook_response.text}")
             else:
@@ -166,6 +172,7 @@ def setup_webhooks():
             <ul>
                 {"".join(f"<li>{result}</li>" for result in setup_results)}
             </ul>
+            <a href="/check_token">Check Token Scopes</a>
         </body>
         </html>
         """)
@@ -200,6 +207,21 @@ def webhook():
             app.logger.error(f"Failed to send email: {str(e)}")
     
     return '', 200
+
+@app.route('/check_token')
+def check_token():
+    access_token = session.get('access_token')
+    if not access_token:
+        return "No access token found. Please log in again."
+
+    headers = {'Authorization': f'token {access_token}'}
+    r = requests.get('https://api.github.com/user', headers=headers)
+    
+    if r.status_code == 200:
+        scopes = r.headers.get('X-OAuth-Scopes', '').split(', ')
+        return f"Token scopes: {', '.join(scopes)}"
+    else:
+        return f"Error checking token: {r.status_code} - {r.text}"
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
