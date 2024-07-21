@@ -7,6 +7,7 @@ import requests
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24)
+app.config['GITHUB_ACCESS_TOKEN'] = access_token
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -38,6 +39,8 @@ def login():
 
 @app.route('/callback')
 def callback():
+    access_token = r.json()['access_token']
+    session['access_token'] = access_token
     app.logger.debug("Callback route accessed")
     session_code = request.args.get('code')
     github_client_id = os.environ.get('GITHUB_CLIENT_ID')
@@ -192,9 +195,9 @@ def webhook():
     payload = request.json
     app.logger.info(f"Received webhook: {json.dumps(payload)}")
     
-    # Check if this is a ping event
-    if 'zen' in payload:
-        app.logger.info("Received ping event from GitHub")
+    access_token = app.config.get('GITHUB_ACCESS_TOKEN')
+    if not access_token:
+        app.logger.error("No access token found")
         return '', 200
 
     # Handle push event
