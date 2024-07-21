@@ -7,12 +7,9 @@ import requests
 import json
 import base64
 import requests
-import openai
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24)
-openai.api_key = os.environ.get('OPENAI_API_KEY')
-
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -218,45 +215,10 @@ def webhook():
                     if response.status_code == 200:
                         file_content = base64.b64decode(response.json()['content']).decode('utf-8')
                         app.logger.info(f"Content of {file_path}:\n{file_content}")
-                        
-                        # Send to ChatGPT API
-                        gpt_response = send_to_chatgpt(file_content, commit['message'])
-                        app.logger.info(f"ChatGPT response for {file_path}:\n{gpt_response}")
                     else:
                         app.logger.error(f"Failed to fetch content of {file_path}: {response.status_code}")
 
     return '', 200
-
-def send_to_chatgpt(file_content, commit_message):
-    prompt = f"""
-    You are an AI assistant specialized in analyzing code changes. Review the following code modification:
-
-    Commit message: {commit_message}
-
-    Modified code:
-    ```
-    {file_content}
-    ```
-
-    Please provide the following analysis:
-    1. Provide an email in the format of a newsletter updates targeted at customers explaining what the changes in the code provides. what they will see different whea new features they get etc. 
-  
-
-    Format your as an email with emojis. 
-    """
-
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful code review assistant."},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        return response.choices[0].message['content']
-    except Exception as e:
-        app.logger.error(f"Error calling ChatGPT API: {str(e)}")
-        return "Error calling ChatGPT API"
 
 @app.route('/check_token')
 def check_token():
@@ -287,5 +249,4 @@ if __name__ == '__main__':
     app.run(host='0.0.0.0', port=port)
 
   #can your hear me?
-  #hey hey
-    # this button will be awesome
+  #hey
