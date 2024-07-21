@@ -2,41 +2,42 @@ from flask import Flask, redirect, request, render_template_string, session, url
 import os
 import requests
 import logging
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
 import json
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24)
 
 # Set up logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.DEBUG, filename='app.log', filemode='a', format='%(name)s - %(levelname)s - %(message)s')
+
+# Global variables to store original and modified repo data
+original_repo_data = {}
+modified_repo_data = {}
 
 @app.route('/')
 def home():
     return render_template_string('''
     <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Anti - GitHub Login</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-</head>
-<body>
-    <div class="container">
-        <div class="card">
-            <button class="login-button" onclick="window.location.href='/login'">Login with GitHub</button>
-        </div>
-    </div>
-</body>
-</html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Anti - GitHub Login</title>
+        <style>
+            body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+            .login-button { padding: 10px 20px; font-size: 16px; background-color: #24292e; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        </style>
+    </head>
+    <body>
+        <button class="login-button" onclick="window.location.href='/login'">Login with GitHub</button>
+    </body>
+    </html>
     ''')
 
 @app.route('/login')
 def login():
     github_client_id = os.environ.get('GITHUB_CLIENT_ID')
-    return redirect(f'https://github.com/login/oauth/authorize?client_id={github_client_id}&scope=repo,admin:repo_hook,user')
+    return redirect(f'https://github.com/login/oauth/authorize?client_id={github_client_id}&scope=repo,user')
 
 @app.route('/callback')
 def callback():
@@ -70,8 +71,13 @@ def callback():
 
         access_token = r.json()['access_token']
         session['access_token'] = access_token
+
+        # Get user info
+        user_response = requests.get('https://api.github.com/user', headers={'Authorization': f'token {access_token}'})
+        user_data = user_response.json()
+        session['github_username'] = user_data['login']
         
-        app.logger.info("Successfully obtained access token")
+        app.logger.info(f"Successfully obtained access token for user: {session['github_username']}")
         return redirect(url_for('list_repos'))
     except requests.exceptions.RequestException as e:
         error_message = f"Error during GitHub API request: {str(e)}"
@@ -147,6 +153,9 @@ def setup_webhooks():
                 setup_results.append(f"Skipped {repo}: You don't have admin rights to this repository")
                 continue
 
+            # Store the original content
+            original_repo_data[repo] = get_repo_content(repo)
+
             webhook_data = {
                 'name': 'web',
                 'active': True,
@@ -186,27 +195,14 @@ def setup_webhooks():
 def webhook():
     payload = request.json
     app.logger.info(f"Received webhook: {json.dumps(payload)}")
-    if payload['ref'] == 'refs/heads/main':  # or whichever branch you're interested in
-        repo = payload['repository']['full_name']
-        pusher = payload['pusher']['name']
-        commits = payload['commits']
-        
-        message = Mail(
-            from_email=os.environ.get('FROM_EMAIL', 'yadinupstage@gmail.com'),
-            to_emails=os.environ.get('TO_EMAIL', 'yadinupstage@gmail.com'),
-            subject=f'New push to {repo}',
-            html_content=f'<p>New push to {repo} by {pusher}</p>' +
-                         '<ul>' +
-                         ''.join([f'<li>{commit["message"]}</li>' for commit in commits]) +
-                         '</ul>'
-        )
-        try:
-            sg = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
-            response = sg.send(message)
-            app.logger.info(f"Email sent, status code: {response.status_code}")
-        except Exception as e:
-            app.logger.error(f"Failed to send email: {str(e)}")
     
+    repo_name = payload['repository']['full_name']
+    global modified_repo_data
+    modified_repo_data[repo_name] = get_repo_content(repo_name)
+
+    if payload['ref'] == 'refs/heads/main':  # or whichever branch you're interested in
+        compare_repos(repo_name)
+        
     return '', 200
 
 @app.route('/check_token')
@@ -231,9 +227,39 @@ def check_token():
     else:
         return f"Error checking token: {r.status_code} - {r.text}"
 
+def get_repo_content(repo):
+    access_token = session.get('access_token')
+    if not access_token:
+        app.logger.error("No access token found. Please log in again.")
+        return
+
+    try:
+        headers = {'Authorization': f'token {access_token}'}
+        url = f'https://api.github.com/repos/{repo}/contents/'
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        return {item['path']: item['sha'] for item in response.json()}
+    except Exception as e:
+        app.logger.error(f"Error fetching repository content for {repo}: {str(e)}")
+        return {}
+
+def compare_repos(repo_name):
+    global original_repo_data, modified_repo_data
+    original = original_repo_data.get(repo_name, {})
+    modified = modified_repo_data.get(repo_name, {})
+    
+    added = set(modified.keys()) - set(original.keys())
+    removed = set(original.keys()) - set(modified.keys())
+    modified_files = {path: modified[path] for path in original.keys() & modified.keys() if original[path] != modified[path]}
+    
+    differences = {
+        'added': list(added),
+        'removed': list(removed),
+        'modified': list(modified_files.keys())
+    }
+    
+    app.logger.info(f"Differences for {repo_name}: {json.dumps(differences, indent=2)}")
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
-
-if else 32
-if __BOBBY__
