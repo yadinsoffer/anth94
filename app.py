@@ -4,6 +4,9 @@ import requests
 import logging
 import json
 import requests
+import json
+import base64
+import requests
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24)
@@ -191,19 +194,11 @@ def webhook():
         app.logger.error("No access token found in app config")
         return '', 200
 
-    # Handle push event
     if 'ref' in payload:
         if payload['ref'] == 'refs/heads/main':  # or whichever branch you're interested in
             repo = payload['repository']['full_name']
             commits = payload['commits']
             
-            access_token = session.get("access_token")
-            if not access_token:
-                app.logger.error("No access token found in session")
-                return '', 200
-
-            app.logger.debug(f"Using access token: {access_token[:10]}...")  # Log first 10 chars
-
             for commit in commits:
                 commit_sha = commit['id']
                 app.logger.info(f"Processing commit: {commit_sha}")
@@ -222,7 +217,6 @@ def webhook():
                         app.logger.info(f"Content of {file_path}:\n{file_content}")
                     else:
                         app.logger.error(f"Failed to fetch content of {file_path}: {response.status_code}")
-                        app.logger.error(f"Response content: {response.text}")
 
     return '', 200
 
