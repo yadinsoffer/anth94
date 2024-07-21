@@ -116,6 +116,8 @@ def list_repos():
             </form>
             <br>
             <a href="/check_token">Check Token Scopes</a>
+            <br>
+            <a href="/repo_contents">View Repository Contents</a>
         </body>
         </html>
         """)
