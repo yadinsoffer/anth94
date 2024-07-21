@@ -49,9 +49,11 @@ def callback():
     app.logger.debug(f"Client Secret: {github_client_secret[:5]}...")  # Log only first 5 chars of secret
 
     if not session_code:
+        app.logger.error("No code received from GitHub")
         return render_template_string("<html><body><h1>Error: No code received from GitHub</h1></body></html>")
 
     if not github_client_id or not github_client_secret:
+        app.logger.error("Missing GitHub client ID or secret")
         return render_template_string("<html><body><h1>Error: Missing GitHub client ID or secret</h1></body></html>")
 
     try:
@@ -68,8 +70,8 @@ def callback():
         access_token = r.json()['access_token']
         session['access_token'] = access_token
         
-        # Redirect to setup_webhooks after successful login
-        return redirect(url_for('setup_webhooks'))
+        app.logger.info("Successfully obtained access token")
+        return redirect(url_for('list_repos'))
     except requests.exceptions.RequestException as e:
         error_message = f"Error during GitHub API request: {str(e)}"
         app.logger.error(error_message)
@@ -83,8 +85,8 @@ def callback():
         app.logger.error(error_message)
         return render_template_string(f"<html><body><h1>{error_message}</h1></body></html>")
 
-@app.route('/setup_webhooks')
-def setup_webhooks():
+@app.route('/list_repos')
+def list_repos():
     access_token = session.get('access_token')
     if not access_token:
         return render_template_string("<html><body><h1>Error: No access token found. Please log in again.</h1></body></html>")
@@ -97,13 +99,40 @@ def setup_webhooks():
         repos_response.raise_for_status()
         repos = repos_response.json()
 
-        app.logger.info(f"Fetched {len(repos)} repositories")
+        repo_list = [f'<li><input type="checkbox" name="repos" value="{repo["full_name"]}"> {repo["full_name"]}</li>' for repo in repos]
+        
+        return render_template_string(f"""
+        <html>
+        <body>
+            <h1>Select repositories to set up webhooks:</h1>
+            <form action="/setup_webhooks" method="post">
+                <ul>
+                    {"".join(repo_list)}
+                </ul>
+                <input type="submit" value="Set up webhooks">
+            </form>
+        </body>
+        </html>
+        """)
+    except Exception as e:
+        error_message = f"Error fetching repositories: {str(e)}"
+        app.logger.error(error_message)
+        return render_template_string(f"<html><body><h1>{error_message}</h1></body></html>")
 
+@app.route('/setup_webhooks', methods=['POST'])
+def setup_webhooks():
+    access_token = session.get('access_token')
+    if not access_token:
+        return render_template_string("<html><body><h1>Error: No access token found. Please log in again.</h1></body></html>")
+
+    selected_repos = request.form.getlist('repos')
+    
+    try:
+        headers = {'Authorization': f'token {access_token}'}
         webhook_url = f"https://{request.host}/webhook"
         
         setup_results = []
-        for repo in repos:
-            # Set up webhook for each repository
+        for repo in selected_repos:
             webhook_data = {
                 'name': 'web',
                 'active': True,
@@ -113,13 +142,13 @@ def setup_webhooks():
                     'content_type': 'json'
                 }
             }
-            webhook_url = f"https://api.github.com/repos/{repo['full_name']}/hooks"
-            webhook_response = requests.post(webhook_url, headers=headers, data=json.dumps(webhook_data))
+            webhook_url = f"https://api.github.com/repos/{repo}/hooks"
+            webhook_response = requests.post(webhook_url, headers=headers, json=webhook_data)
             
             if webhook_response.status_code != 201:
-                setup_results.append(f"Failed to set up webhook for {repo['full_name']}: {webhook_response.text}")
+                setup_results.append(f"Failed to set up webhook for {repo}: {webhook_response.text}")
             else:
-                setup_results.append(f"Successfully set up webhook for {repo['full_name']}")
+                setup_results.append(f"Successfully set up webhook for {repo}")
 
         return render_template_string(f"""
         <html>
