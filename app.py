@@ -1,12 +1,9 @@
 from flask import Flask, redirect, request, render_template_string, session
 import os
-from dotenv import load_dotenv
 import requests
 import logging
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
-
-load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -36,15 +33,15 @@ def home():
 
 @app.route('/login')
 def login():
-    github_client_id = os.getenv('GITHUB_CLIENT_ID')
+    github_client_id = os.environ.get('GITHUB_CLIENT_ID')
     return redirect(f'https://github.com/login/oauth/authorize?client_id={github_client_id}&scope=repo')
 
 @app.route('/callback')
 def callback():
     app.logger.debug("Callback route accessed")
     session_code = request.args.get('code')
-    github_client_id = os.getenv('GITHUB_CLIENT_ID')
-    github_client_secret = os.getenv('GITHUB_CLIENT_SECRET')
+    github_client_id = os.environ.get('GITHUB_CLIENT_ID')
+    github_client_secret = os.environ.get('GITHUB_CLIENT_SECRET')
 
     app.logger.debug(f"Received code: {session_code}")
     app.logger.debug(f"Client ID: {github_client_id}")
@@ -94,8 +91,8 @@ def webhook():
         commits = payload['commits']
         
         message = Mail(
-            from_email='yadinupstage@gmail.com',
-            to_emails='yadinupstage@gmail.com',
+            from_email='your-app@example.com',
+            to_emails='your-email@example.com',
             subject=f'New push to {repo}',
             html_content=f'<p>New push to {repo} by {pusher}</p>' +
                          '<ul>' +
@@ -112,5 +109,5 @@ def webhook():
     return '', 200
 
 if __name__ == '__main__':
-    print("Starting Flask server on http://localhost:8000")
-    app.run(debug=True, host='0.0.0.0', port=8000, use_reloader=False)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
