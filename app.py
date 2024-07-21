@@ -128,11 +128,20 @@ def setup_webhooks():
     selected_repos = request.form.getlist('repos')
     
     try:
-        headers = {'Authorization': f'token {access_token}'}
+        headers = {'Authorization': f'token {access_token}', 'Accept': 'application/vnd.github.v3+json'}
         webhook_url = f"https://{request.host}/webhook"
         
         setup_results = []
         for repo in selected_repos:
+            # Check if user has admin rights to the repo
+            repo_url = f"https://api.github.com/repos/{repo}"
+            repo_response = requests.get(repo_url, headers=headers)
+            repo_data = repo_response.json()
+            
+            if not repo_data.get('permissions', {}).get('admin', False):
+                setup_results.append(f"Skipped {repo}: You don't have admin rights to this repository")
+                continue
+
             webhook_data = {
                 'name': 'web',
                 'active': True,
