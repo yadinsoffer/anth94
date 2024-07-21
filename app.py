@@ -35,7 +35,7 @@ def home():
 @app.route('/login')
 def login():
     github_client_id = os.environ.get('GITHUB_CLIENT_ID')
-    return redirect(f'https://github.com/login/oauth/authorize?client_id={github_client_id}&scope=repo,admin:repo_hook,user')
+    return redirect(f'https://github.com/login/oauth/authorize?client_id={github_client_id}&scope=repo admin:repo_hook user')
 
 @app.route('/callback')
 def callback():
@@ -70,6 +70,13 @@ def callback():
         access_token = r.json()['access_token']
         session['access_token'] = access_token
         
+        # Check token scopes immediately after obtaining it
+        check_url = 'https://api.github.com/user'
+        check_headers = {'Authorization': f'token {access_token}'}
+        check_response = requests.get(check_url, headers=check_headers)
+        scopes = check_response.headers.get('X-OAuth-Scopes', '').split(', ')
+        app.logger.debug(f"Token scopes: {scopes}")
+        
         app.logger.info("Successfully obtained access token")
         return redirect(url_for('list_repos'))
     except requests.exceptions.RequestException as e:
@@ -82,42 +89,6 @@ def callback():
         return render_template_string(f"<html><body><h1>{error_message}</h1></body></html>")
     except Exception as e:
         error_message = f"Unexpected error: {str(e)}"
-        app.logger.error(error_message)
-        return render_template_string(f"<html><body><h1>{error_message}</h1></body></html>")
-
-@app.route('/list_repos')
-def list_repos():
-    access_token = session.get('access_token')
-    if not access_token:
-        return render_template_string("<html><body><h1>Error: No access token found. Please log in again.</h1></body></html>")
-
-    try:
-        # Fetch user's repositories
-        repos_url = 'https://api.github.com/user/repos'
-        headers = {'Authorization': f'token {access_token}'}
-        repos_response = requests.get(repos_url, headers=headers)
-        repos_response.raise_for_status()
-        repos = repos_response.json()
-
-        repo_list = [f'<li><input type="checkbox" name="repos" value="{repo["full_name"]}"> {repo["full_name"]}</li>' for repo in repos]
-        
-        return render_template_string(f"""
-        <html>
-        <body>
-            <h1>Select repositories to set up webhooks:</h1>
-            <form action="/setup_webhooks" method="post">
-                <ul>
-                    {"".join(repo_list)}
-                </ul>
-                <input type="submit" value="Set up webhooks">
-            </form>
-            <br>
-            <a href="/check_token">Check Token Scopes</a>
-        </body>
-        </html>
-        """)
-    except Exception as e:
-        error_message = f"Error fetching repositories: {str(e)}"
         app.logger.error(error_message)
         return render_template_string(f"<html><body><h1>{error_message}</h1></body></html>")
 
