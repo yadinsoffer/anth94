@@ -3,9 +3,6 @@ import os
 import requests
 import logging
 import json
-from threading import Thread
-from time import sleep
-import difflib
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24)
@@ -155,6 +152,9 @@ def setup_webhooks():
             if not repo_data.get('permissions', {}).get('admin', False):
                 setup_results.append(f"Skipped {repo}: You don't have admin rights to this repository")
                 continue
+
+            # Store the original content
+            original_repo_data[repo] = get_repo_content(repo)
 
             webhook_data = {
                 'name': 'web',
