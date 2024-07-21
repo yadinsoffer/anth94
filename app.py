@@ -38,17 +38,9 @@ def login():
 
 @app.route('/callback')
 def callback():
-    access_token = r.json()['access_token']
-    session['access_token'] = access_token
-    app.config['GITHUB_ACCESS_TOKEN'] = access_token
-    app.logger.debug("Callback route accessed")
     session_code = request.args.get('code')
     github_client_id = os.environ.get('GITHUB_CLIENT_ID')
     github_client_secret = os.environ.get('GITHUB_CLIENT_SECRET')
-
-    app.logger.debug(f"Received code: {session_code}")
-    app.logger.debug(f"Client ID: {github_client_id}")
-    app.logger.debug(f"Client Secret: {github_client_secret[:5]}...")  # Log only first 5 chars of secret
 
     if not session_code:
         app.logger.error("No code received from GitHub")
@@ -65,12 +57,11 @@ def callback():
             'code': session_code
         }, headers={'Accept': 'application/json'})
 
-        app.logger.debug(f"GitHub API response: {r.text}")
-
         r.raise_for_status()  # Raise an exception for bad responses
 
         access_token = r.json()['access_token']
         session['access_token'] = access_token
+        app.config['GITHUB_ACCESS_TOKEN'] = access_token
 
         # Get user info
         user_response = requests.get('https://api.github.com/user', headers={'Authorization': f'token {access_token}'})
