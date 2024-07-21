@@ -20,4 +20,4 @@ sendgrid==6.11.0
 starkbank-ecdsa==2.2.0
 urllib3==2.2.2
 Werkzeug==3.0.3
-Flask-SQLAlchemy
+openai==0.27.0
