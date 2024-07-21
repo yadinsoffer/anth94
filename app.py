@@ -8,11 +8,7 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24)
 
 # Set up logging
-logging.basicConfig(level=logging.DEBUG, filename='app.log', filemode='a', format='%(name)s - %(levelname)s - %(message)s')
-
-# Global variables to store original and modified repo data
-original_repo_data = {}
-modified_repo_data = {}
+logging.basicConfig(level=logging.DEBUG)
 
 @app.route('/')
 def home():
@@ -153,9 +149,6 @@ def setup_webhooks():
                 setup_results.append(f"Skipped {repo}: You don't have admin rights to this repository")
                 continue
 
-            # Store the original content
-            original_repo_data[repo] = get_repo_content(repo)
-
             webhook_data = {
                 'name': 'web',
                 'active': True,
@@ -196,13 +189,19 @@ def webhook():
     payload = request.json
     app.logger.info(f"Received webhook: {json.dumps(payload)}")
     
-    repo_name = payload['repository']['full_name']
-    global modified_repo_data
-    modified_repo_data[repo_name] = get_repo_content(repo_name)
-
     if payload['ref'] == 'refs/heads/main':  # or whichever branch you're interested in
-        compare_repos(repo_name)
+        repo = payload['repository']['full_name']
+        pusher = payload['pusher']['name']
+        commits = payload['commits']
         
+        for commit in commits:
+            commit_sha = commit['id']
+            app.logger.info(f"Processing commit: {commit_sha}")
+            app.logger.info(f"Commit message: {commit['message']}")
+            app.logger.info(f"Added files: {', '.join(commit['added'])}")
+            app.logger.info(f"Removed files: {', '.join(commit['removed'])}")
+            app.logger.info(f"Modified files: {', '.join(commit['modified'])}")
+
     return '', 200
 
 @app.route('/check_token')
@@ -226,39 +225,6 @@ def check_token():
         """
     else:
         return f"Error checking token: {r.status_code} - {r.text}"
-
-def get_repo_content(repo):
-    access_token = session.get('access_token')
-    if not access_token:
-        app.logger.error("No access token found. Please log in again.")
-        return
-
-    try:
-        headers = {'Authorization': f'token {access_token}'}
-        url = f'https://api.github.com/repos/{repo}/contents/'
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        return {item['path']: item['sha'] for item in response.json()}
-    except Exception as e:
-        app.logger.error(f"Error fetching repository content for {repo}: {str(e)}")
-        return {}
-
-def compare_repos(repo_name):
-    global original_repo_data, modified_repo_data
-    original = original_repo_data.get(repo_name, {})
-    modified = modified_repo_data.get(repo_name, {})
-    
-    added = set(modified.keys()) - set(original.keys())
-    removed = set(original.keys()) - set(modified.keys())
-    modified_files = {path: modified[path] for path in original.keys() & modified.keys() if original[path] != modified[path]}
-    
-    differences = {
-        'added': list(added),
-        'removed': list(removed),
-        'modified': list(modified_files.keys())
-    }
-    
-    app.logger.info(f"Differences for {repo_name}: {json.dumps(differences, indent=2)}")
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
