@@ -1,13 +1,21 @@
 from flask import Flask, redirect, request, render_template_string, session, url_for
+from flask_session import Session
 import os
 import requests
 import logging
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 import json
+import redis
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+app.config['SECRET_KEY'] = os.urandom(24)
+app.config['SESSION_TYPE'] = 'redis'
+app.config['SESSION_PERMANENT'] = False
+app.config['SESSION_USE_SIGNER'] = True
+app.config['SESSION_REDIS'] = redis.from_url(os.environ.get('REDIS_URL'))
+
+Session(app)
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -35,7 +43,7 @@ def home():
 @app.route('/login')
 def login():
     github_client_id = os.environ.get('GITHUB_CLIENT_ID')
-    return redirect(f'https://github.com/login/oauth/authorize?client_id={github_client_id}&scope=repo,admin:repo_hook')
+    return redirect(f'https://github.com/login/oauth/authorize?client_id={github_client_id}&scope=repo,admin:repo_hook,read:user')
 
 @app.route('/callback')
 def callback():
