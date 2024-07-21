@@ -3,6 +3,7 @@ import os
 import requests
 import logging
 import json
+import requests
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24)
@@ -210,6 +211,17 @@ def webhook():
                 app.logger.info(f"Added files: {', '.join(commit['added'])}")
                 app.logger.info(f"Removed files: {', '.join(commit['removed'])}")
                 app.logger.info(f"Modified files: {', '.join(commit['modified'])}")
+                
+                # Fetch content of modified files
+                for file_path in commit['modified']:
+                    file_url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
+                    headers = {'Authorization': f'token {session.get("access_token")}'}
+                    response = requests.get(file_url, headers=headers)
+                    if response.status_code == 200:
+                        file_content = base64.b64decode(response.json()['content']).decode('utf-8')
+                        app.logger.info(f"Content of {file_path}:\n{file_content}")
+                    else:
+                        app.logger.error(f"Failed to fetch content of {file_path}: {response.status_code}")
 
     # Handle other types of events here if needed
 
