@@ -191,8 +191,8 @@ def webhook():
         commits = payload['commits']
         
         message = Mail(
-            from_email=os.environ.get('FROM_EMAIL', 'your-app@example.com'),
-            to_emails=os.environ.get('TO_EMAIL', 'your-email@example.com'),
+            from_email=os.environ.get('FROM_EMAIL', 'yadinupstage@gmail.com'),
+            to_emails=os.environ.get('TO_EMAIL', 'yadinupstage@gmail.com'),
             subject=f'New push to {repo}',
             html_content=f'<p>New push to {repo} by {pusher}</p>' +
                          '<ul>' +
