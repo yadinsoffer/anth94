@@ -35,7 +35,7 @@ def home():
 @app.route('/login')
 def login():
     github_client_id = os.environ.get('GITHUB_CLIENT_ID')
-    return redirect(f'https://github.com/login/oauth/authorize?client_id={github_client_id}&scope=repo admin:repo_hook user')
+    return redirect(f'https://github.com/login/oauth/authorize?client_id={github_client_id}&scope=repo,admin:repo_hook,user')
 
 @app.route('/callback')
 def callback():
@@ -219,7 +219,14 @@ def check_token():
     
     if r.status_code == 200:
         scopes = r.headers.get('X-OAuth-Scopes', '').split(', ')
-        return f"Token scopes: {', '.join(scopes)}"
+        user_data = r.json()
+        return f"""
+        <h1>Token Information</h1>
+        <p>Token scopes: {', '.join(scopes) if scopes else 'No scopes'}</p>
+        <p>User: {user_data.get('login')}</p>
+        <p>Name: {user_data.get('name')}</p>
+        <a href="/">Back to Home</a>
+        """
     else:
         return f"Error checking token: {r.status_code} - {r.text}"
 
