@@ -3,6 +3,8 @@ import os
 from dotenv import load_dotenv
 import requests
 import logging
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
 
 load_dotenv()
 
@@ -82,6 +84,32 @@ def callback():
         error_message = f"Unexpected error: {str(e)}"
         app.logger.error(error_message)
         return render_template_string(f"<html><body><h1>{error_message}</h1></body></html>")
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    payload = request.json
+    if payload['ref'] == 'refs/heads/main':  # or whichever branch you're interested in
+        repo = payload['repository']['full_name']
+        pusher = payload['pusher']['name']
+        commits = payload['commits']
+        
+        message = Mail(
+            from_email='yadinupstage@gmail.com',
+            to_emails='yadinupstage@gmail.com',
+            subject=f'New push to {repo}',
+            html_content=f'<p>New push to {repo} by {pusher}</p>' +
+                         '<ul>' +
+                         ''.join([f'<li>{commit["message"]}</li>' for commit in commits]) +
+                         '</ul>'
+        )
+        try:
+            sg = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
+            response = sg.send(message)
+            print(response.status_code)
+        except Exception as e:
+            print(str(e))
+    
+    return '', 200
 
 if __name__ == '__main__':
     print("Starting Flask server on http://localhost:8000")

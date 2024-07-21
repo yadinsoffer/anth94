@@ -10,6 +10,9 @@ Jinja2==3.1.4
 MarkupSafe==2.1.5
 packaging==24.1
 python-dotenv==1.0.1
+python-http-client==3.3.7
 requests==2.32.3
+sendgrid==6.11.0
+starkbank-ecdsa==2.2.0
 urllib3==2.2.2
 Werkzeug==3.0.3
