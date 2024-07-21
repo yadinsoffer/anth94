@@ -194,13 +194,36 @@ def webhook():
         pusher = payload['pusher']['name']
         commits = payload['commits']
         
+        access_token = session.get('access_token')
+        headers = {'Authorization': f'token {access_token}'}
+        
         for commit in commits:
             commit_sha = commit['id']
+            commit_message = commit['message']
             app.logger.info(f"Processing commit: {commit_sha}")
-            app.logger.info(f"Commit message: {commit['message']}")
-            app.logger.info(f"Added files: {', '.join(commit['added'])}")
-            app.logger.info(f"Removed files: {', '.join(commit['removed'])}")
-            app.logger.info(f"Modified files: {', '.join(commit['modified'])}")
+            app.logger.info(f"Commit message: {commit_message}")
+            
+            # Fetch commit details
+            commit_url = f"https://api.github.com/repos/{repo}/commits/{commit_sha}"
+            commit_response = requests.get(commit_url, headers=headers)
+            commit_data = commit_response.json()
+
+            if commit_response.status_code == 200:
+                for file in commit_data['files']:
+                    filename = file['filename']
+                    status = file['status']
+                    additions = file['additions']
+                    deletions = file['deletions']
+                    changes = file['changes']
+                    patch = file.get('patch')
+                    
+                    app.logger.info(f"File: {filename}")
+                    app.logger.info(f"Status: {status}")
+                    app.logger.info(f"Additions: {additions}, Deletions: {deletions}, Changes: {changes}")
+                    if patch:
+                        app.logger.info(f"Patch: {patch}")
+            else:
+                app.logger.error(f"Failed to fetch commit details: {commit_response.status_code} - {commit_response.text}")
 
     return '', 200
 
