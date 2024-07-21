@@ -87,38 +87,59 @@ def callback():
 def setup_webhooks():
     access_token = session.get('access_token')
     if not access_token:
-        return "Please log in first", 401
+        return render_template_string("<html><body><h1>Error: No access token found. Please log in again.</h1></body></html>")
 
-    # Fetch user's repositories
-    repos_url = 'https://api.github.com/user/repos'
-    headers = {'Authorization': f'token {access_token}'}
-    repos_response = requests.get(repos_url, headers=headers)
-    repos = repos_response.json()
+    try:
+        # Fetch user's repositories
+        repos_url = 'https://api.github.com/user/repos'
+        headers = {'Authorization': f'token {access_token}'}
+        repos_response = requests.get(repos_url, headers=headers)
+        repos_response.raise_for_status()
+        repos = repos_response.json()
 
-    webhook_url = f"https://{request.host}/webhook"
-    
-    for repo in repos:
-        # Set up webhook for each repository
-        webhook_data = {
-            'name': 'web',
-            'active': True,
-            'events': ['push'],
-            'config': {
-                'url': webhook_url,
-                'content_type': 'json'
-            }
-        }
-        webhook_url = f"https://api.github.com/repos/{repo['full_name']}/hooks"
-        webhook_response = requests.post(webhook_url, headers=headers, data=json.dumps(webhook_data))
+        app.logger.info(f"Fetched {len(repos)} repositories")
+
+        webhook_url = f"https://{request.host}/webhook"
         
-        if webhook_response.status_code != 201:
-            app.logger.error(f"Failed to set up webhook for {repo['full_name']}: {webhook_response.text}")
+        setup_results = []
+        for repo in repos:
+            # Set up webhook for each repository
+            webhook_data = {
+                'name': 'web',
+                'active': True,
+                'events': ['push'],
+                'config': {
+                    'url': webhook_url,
+                    'content_type': 'json'
+                }
+            }
+            webhook_url = f"https://api.github.com/repos/{repo['full_name']}/hooks"
+            webhook_response = requests.post(webhook_url, headers=headers, data=json.dumps(webhook_data))
+            
+            if webhook_response.status_code != 201:
+                setup_results.append(f"Failed to set up webhook for {repo['full_name']}: {webhook_response.text}")
+            else:
+                setup_results.append(f"Successfully set up webhook for {repo['full_name']}")
 
-    return "Webhooks set up successfully!"
+        return render_template_string(f"""
+        <html>
+        <body>
+            <h1>Webhook Setup Results:</h1>
+            <ul>
+                {"".join(f"<li>{result}</li>" for result in setup_results)}
+            </ul>
+        </body>
+        </html>
+        """)
+    except Exception as e:
+        error_message = f"Error setting up webhooks: {str(e)}"
+        app.logger.error(error_message)
+        return render_template_string(f"<html><body><h1>{error_message}</h1></body></html>")
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     payload = request.json
+    app.logger.info(f"Received webhook: {json.dumps(payload)}")
     if payload['ref'] == 'refs/heads/main':  # or whichever branch you're interested in
         repo = payload['repository']['full_name']
         pusher = payload['pusher']['name']
@@ -136,9 +157,9 @@ def webhook():
         try:
             sg = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
             response = sg.send(message)
-            print(response.status_code)
+            app.logger.info(f"Email sent, status code: {response.status_code}")
         except Exception as e:
-            print(str(e))
+            app.logger.error(f"Failed to send email: {str(e)}")
     
     return '', 200
 
