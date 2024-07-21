@@ -191,18 +191,27 @@ def webhook():
     payload = request.json
     app.logger.info(f"Received webhook: {json.dumps(payload)}")
     
-    if payload['ref'] == 'refs/heads/main':  # or whichever branch you're interested in
-        repo = payload['repository']['full_name']
-        pusher = payload['pusher']['name']
-        commits = payload['commits']
-        
-        for commit in commits:
-            commit_sha = commit['id']
-            app.logger.info(f"Processing commit: {commit_sha}")
-            app.logger.info(f"Commit message: {commit['message']}")
-            app.logger.info(f"Added files: {', '.join(commit['added'])}")
-            app.logger.info(f"Removed files: {', '.join(commit['removed'])}")
-            app.logger.info(f"Modified files: {', '.join(commit['modified'])}")
+    # Check if this is a ping event
+    if 'zen' in payload:
+        app.logger.info("Received ping event from GitHub")
+        return '', 200
+
+    # Handle push event
+    if 'ref' in payload:
+        if payload['ref'] == 'refs/heads/main':  # or whichever branch you're interested in
+            repo = payload['repository']['full_name']
+            pusher = payload['pusher']['name']
+            commits = payload['commits']
+            
+            for commit in commits:
+                commit_sha = commit['id']
+                app.logger.info(f"Processing commit: {commit_sha}")
+                app.logger.info(f"Commit message: {commit['message']}")
+                app.logger.info(f"Added files: {', '.join(commit['added'])}")
+                app.logger.info(f"Removed files: {', '.join(commit['removed'])}")
+                app.logger.info(f"Modified files: {', '.join(commit['modified'])}")
+
+    # Handle other types of events here if needed
 
     return '', 200
 
