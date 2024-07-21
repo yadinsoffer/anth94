@@ -12,16 +12,74 @@ app.secret_key = os.urandom(24)
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
 
-# ... (keep the existing routes for '/' and '/login')
+@app.route('/')
+def home():
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Anti - GitHub Login</title>
+        <style>
+            body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+            .login-button { padding: 10px 20px; font-size: 16px; background-color: #24292e; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        </style>
+    </head>
+    <body>
+        <button class="login-button" onclick="window.location.href='/login'">Login with GitHub</button>
+    </body>
+    </html>
+    ''')
+
+@app.route('/login')
+def login():
+    github_client_id = os.environ.get('GITHUB_CLIENT_ID')
+    return redirect(f'https://github.com/login/oauth/authorize?client_id={github_client_id}&scope=repo,admin:repo_hook')
 
 @app.route('/callback')
 def callback():
-    # ... (keep existing code)
+    app.logger.debug("Callback route accessed")
+    session_code = request.args.get('code')
+    github_client_id = os.environ.get('GITHUB_CLIENT_ID')
+    github_client_secret = os.environ.get('GITHUB_CLIENT_SECRET')
+
+    app.logger.debug(f"Received code: {session_code}")
+    app.logger.debug(f"Client ID: {github_client_id}")
+    app.logger.debug(f"Client Secret: {github_client_secret[:5]}...")  # Log only first 5 chars of secret
+
+    if not session_code:
+        return render_template_string("<html><body><h1>Error: No code received from GitHub</h1></body></html>")
+
+    if not github_client_id or not github_client_secret:
+        return render_template_string("<html><body><h1>Error: Missing GitHub client ID or secret</h1></body></html>")
+
     try:
-        # ... (keep existing code)
+        r = requests.post('https://github.com/login/oauth/access_token', data={
+            'client_id': github_client_id,
+            'client_secret': github_client_secret,
+            'code': session_code
+        }, headers={'Accept': 'application/json'})
+
+        app.logger.debug(f"GitHub API response: {r.text}")
+
+        r.raise_for_status()  # Raise an exception for bad responses
+
+        access_token = r.json()['access_token']
+        session['access_token'] = access_token
+        
+        # Redirect to setup_webhooks after successful login
         return redirect(url_for('setup_webhooks'))
+    except requests.exceptions.RequestException as e:
+        error_message = f"Error during GitHub API request: {str(e)}"
+        app.logger.error(error_message)
+        return render_template_string(f"<html><body><h1>{error_message}</h1></body></html>")
+    except KeyError:
+        error_message = f"Failed to get access token from GitHub response: {r.text}"
+        app.logger.error(error_message)
+        return render_template_string(f"<html><body><h1>{error_message}</h1></body></html>")
     except Exception as e:
-        error_message = f"Unexpected error in callback: {str(e)}"
+        error_message = f"Unexpected error: {str(e)}"
         app.logger.error(error_message)
         return render_template_string(f"<html><body><h1>{error_message}</h1></body></html>")
 
@@ -29,50 +87,38 @@ def callback():
 def setup_webhooks():
     access_token = session.get('access_token')
     if not access_token:
-        app.logger.error("No access token found in session")
         return "Please log in first", 401
 
-    try:
-        # Fetch user's repositories
-        repos_url = 'https://api.github.com/user/repos'
-        headers = {'Authorization': f'token {access_token}'}
-        repos_response = requests.get(repos_url, headers=headers)
-        repos_response.raise_for_status()
-        repos = repos_response.json()
+    # Fetch user's repositories
+    repos_url = 'https://api.github.com/user/repos'
+    headers = {'Authorization': f'token {access_token}'}
+    repos_response = requests.get(repos_url, headers=headers)
+    repos = repos_response.json()
 
-        app.logger.info(f"Fetched {len(repos)} repositories")
-
-        webhook_url = f"https://{request.host}/webhook"
-        
-        for repo in repos:
-            # Set up webhook for each repository
-            webhook_data = {
-                'name': 'web',
-                'active': True,
-                'events': ['push'],
-                'config': {
-                    'url': webhook_url,
-                    'content_type': 'json'
-                }
+    webhook_url = f"https://{request.host}/webhook"
+    
+    for repo in repos:
+        # Set up webhook for each repository
+        webhook_data = {
+            'name': 'web',
+            'active': True,
+            'events': ['push'],
+            'config': {
+                'url': webhook_url,
+                'content_type': 'json'
             }
-            webhook_url = f"https://api.github.com/repos/{repo['full_name']}/hooks"
-            webhook_response = requests.post(webhook_url, headers=headers, data=json.dumps(webhook_data))
-            
-            if webhook_response.status_code != 201:
-                app.logger.error(f"Failed to set up webhook for {repo['full_name']}: {webhook_response.text}")
-            else:
-                app.logger.info(f"Successfully set up webhook for {repo['full_name']}")
+        }
+        webhook_url = f"https://api.github.com/repos/{repo['full_name']}/hooks"
+        webhook_response = requests.post(webhook_url, headers=headers, data=json.dumps(webhook_data))
+        
+        if webhook_response.status_code != 201:
+            app.logger.error(f"Failed to set up webhook for {repo['full_name']}: {webhook_response.text}")
 
-        return render_template_string("<html><body><h1>Webhooks set up successfully!</h1></body></html>")
-    except Exception as e:
-        error_message = f"Error setting up webhooks: {str(e)}"
-        app.logger.error(error_message)
-        return render_template_string(f"<html><body><h1>{error_message}</h1></body></html>")
+    return "Webhooks set up successfully!"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     payload = request.json
-    app.logger.info(f"Received webhook: {json.dumps(payload)}")
     if payload['ref'] == 'refs/heads/main':  # or whichever branch you're interested in
         repo = payload['repository']['full_name']
         pusher = payload['pusher']['name']
@@ -90,9 +136,9 @@ def webhook():
         try:
             sg = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
             response = sg.send(message)
-            app.logger.info(f"Email sent, status code: {response.status_code}")
+            print(response.status_code)
         except Exception as e:
-            app.logger.error(f"Failed to send email: {str(e)}")
+            print(str(e))
     
     return '', 200
 
