@@ -7,7 +7,6 @@ import requests
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24)
-app.config['GITHUB_ACCESS_TOKEN'] = access_token
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -41,6 +40,7 @@ def login():
 def callback():
     access_token = r.json()['access_token']
     session['access_token'] = access_token
+    app.config['GITHUB_ACCESS_TOKEN'] = access_token
     app.logger.debug("Callback route accessed")
     session_code = request.args.get('code')
     github_client_id = os.environ.get('GITHUB_CLIENT_ID')
@@ -197,7 +197,7 @@ def webhook():
     
     access_token = app.config.get('GITHUB_ACCESS_TOKEN')
     if not access_token:
-        app.logger.error("No access token found")
+        app.logger.error("No access token found in app config")
         return '', 200
 
     # Handle push event
@@ -237,9 +237,11 @@ def webhook():
 
 @app.route('/check_token')
 def check_token():
-    access_token = session.get('access_token')
-    if not access_token:
-        return "No access token found. Please log in again."
+    access_token = app.config.get('GITHUB_ACCESS_TOKEN')
+    if access_token:
+        return "Access token is set", 200
+    else:
+        return "No access token found", 404
 
     headers = {'Authorization': f'token {access_token}'}
     r = requests.get('https://api.github.com/user', headers=headers)
