@@ -1,3 +1,4 @@
+from ai_analysis import process_webhook_payload
 from flask import Flask, redirect, request, render_template_string, session, url_for
 import os
 import requests
@@ -246,7 +247,3 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
 
-  #can your hear me?
-  #hey hey
-  #dracarys
-  #anyone here?
