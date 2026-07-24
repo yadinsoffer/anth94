@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Walk Straight — Daily Posture Tracker</title>
+<style>
+  :root {
+    --bg: #f4f6f9;
+    --card: #ffffff;
+    --ink: #1f2937;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --good: #16a34a;
+    --warn: #d97706;
+    --bad: #dc2626;
+    --hip-glow: #2563eb;
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    min-height: 100vh;
+    padding: 16px;
+  }
+  .app {
+    max-width: 900px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 760px) {
+    .app { grid-template-columns: 1fr; }
+  }
+  header {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 4px 4px 0;
+  }
+  header h1 { font-size: 1.5rem; font-weight: 700; }
+  header .date { color: var(--muted); font-size: 0.95rem; }
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .card h2 { font-size: 1.05rem; margin-bottom: 12px; }
+
+  /* ---------- Body figure ---------- */
+  .body-card { text-align: center; }
+  .body-card svg { width: 100%; max-width: 240px; height: auto; }
+  .figure-part { fill: #cfd9e6; stroke: #9fb0c4; stroke-width: 1.5; }
+  .hip-marker {
+    fill: var(--hip-glow);
+    opacity: 0.85;
+    cursor: pointer;
+    transition: fill 0.3s;
+  }
+  .hip-ring {
+    fill: none;
+    stroke: var(--hip-glow);
+    stroke-width: 2.5;
+    opacity: 0.6;
+    animation: pulse 2s ease-in-out infinite;
+    transform-origin: center;
+    pointer-events: none;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 0.15; }
+  }
+  .hip-status-good  { --hip-glow: var(--good); }
+  .hip-status-sore  { --hip-glow: var(--warn); }
+  .hip-status-injured { --hip-glow: var(--bad); }
+  .hip-label {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+  .hip-label strong { color: var(--ink); }
+
+  /* ---------- Injury banner ---------- */
+  .injury-banner {
+    display: none;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    font-size: 0.92rem;
+    line-height: 1.5;
+  }
+  .injury-banner.show { display: block; }
+  .injury-banner strong { display: block; margin-bottom: 4px; }
+
+  /* ---------- Form ---------- */
+  .field { margin-bottom: 18px; }
+  .field label {
+    display: block;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .field .hint { font-weight: 400; color: var(--muted); font-size: 0.82rem; }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  .range-value {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--accent);
+    min-width: 2ch;
+    display: inline-block;
+  }
+  .seg {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .seg button {
+    flex: 1;
+    min-width: 90px;
+    padding: 10px 8px;
+    border: 1.5px solid #d1d5db;
+    border-radius: 10px;
+    background: #fff;
+    font-size: 0.88rem;
+    cursor: pointer;
+    color: var(--ink);
+  }
+  .seg button.active-good    { border-color: var(--good); background: #f0fdf4; color: var(--good); font-weight: 700; }
+  .seg button.active-sore    { border-color: var(--warn); background: #fffbeb; color: var(--warn); font-weight: 700; }
+  .seg button.active-injured { border-color: var(--bad);  background: #fef2f2; color: var(--bad);  font-weight: 700; }
+  textarea {
+    width: 100%;
+    border: 1.5px solid #d1d5db;
+    border-radius: 10px;
+    padding: 10px;
+    font: inherit;
+    font-size: 0.9rem;
+    resize: vertical;
+    min-height: 60px;
+  }
+  .save-btn {
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 12px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .save-btn:active { transform: scale(0.99); }
+  .saved-note {
+    text-align: center;
+    color: var(--good);
+    font-size: 0.88rem;
+    margin-top: 8px;
+    min-height: 1.2em;
+  }
+
+  /* ---------- History ---------- */
+  .history-card { grid-column: 1 / -1; }
+  .streak {
+    font-size: 0.9rem;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+  .streak strong { color: var(--accent); font-size: 1.1rem; }
+  .chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    height: 120px;
+    padding-top: 8px;
+  }
+  .chart .day {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    height: 100%;
+    gap: 4px;
+  }
+  .chart .bar {
+    width: 100%;
+    max-width: 34px;
+    border-radius: 6px 6px 0 0;
+    background: var(--accent);
+    min-height: 3px;
+    transition: height 0.3s;
+  }
+  .chart .bar.empty { background: #e5e7eb; }
+  .chart .bar.hip-sore { background: var(--warn); }
+  .chart .bar.hip-injured { background: var(--bad); }
+  .chart .dlabel { font-size: 0.7rem; color: var(--muted); white-space: nowrap; }
+  .legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  .legend span::before {
+    content: "";
+    display: inline-block;
+    width: 10px; height: 10px;
+    border-radius: 3px;
+    margin-right: 5px;
+    vertical-align: -1px;
+    background: var(--dot);
+  }
+  .tips {
+    margin-top: 14px;
+    font-size: 0.88rem;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+  .tips ul { padding-left: 18px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Walk Straight</h1>
+    <div class="date" id="todayLabel"></div>
+  </header>
+
+  <!-- Body figure with hip marker -->
+  <div class="card body-card" id="bodyCard">
+    <h2>Your body</h2>
+    <svg viewBox="0 0 200 420" role="img" aria-label="Human body figure with hips highlighted">
+      <!-- head -->
+      <circle class="figure-part" cx="100" cy="40" r="26"/>
+      <!-- neck -->
+      <rect class="figure-part" x="92" y="64" width="16" height="14" rx="5"/>
+      <!-- torso -->
+      <path class="figure-part" d="M 62 80 Q 100 72 138 80 L 132 190 Q 100 200 68 190 Z"/>
+      <!-- left arm -->
+      <path class="figure-part" d="M 62 84 Q 42 100 38 150 Q 36 185 40 210 L 52 208 Q 50 180 54 150 Q 58 115 68 96 Z"/>
+      <!-- right arm -->
+      <path class="figure-part" d="M 138 84 Q 158 100 162 150 Q 164 185 160 210 L 148 208 Q 150 180 146 150 Q 142 115 132 96 Z"/>
+      <!-- pelvis -->
+      <path class="figure-part" d="M 68 190 Q 100 200 132 190 L 136 232 Q 100 244 64 232 Z"/>
+      <!-- left leg -->
+      <path class="figure-part" d="M 66 230 Q 74 238 92 240 L 90 320 L 88 395 L 70 395 L 72 320 Z"/>
+      <!-- right leg -->
+      <path class="figure-part" d="M 134 230 Q 126 238 108 240 L 110 320 L 112 395 L 130 395 L 128 320 Z"/>
+      <!-- hip markers -->
+      <g id="hipGroup">
+        <circle class="hip-ring" cx="74" cy="212" r="16"/>
+        <circle class="hip-ring" cx="126" cy="212" r="16"/>
+        <circle class="hip-marker" cx="74" cy="212" r="9"/>
+        <circle class="hip-marker" cx="126" cy="212" r="9"/>
+      </g>
+    </svg>
+    <div class="hip-label">Hip status: <strong id="hipLabel">Feeling good</strong></div>
+  </div>
+
+  <!-- Daily check-in -->
+  <div class="card">
+    <h2>Today's check-in</h2>
+
+    <div class="injury-banner" id="injuryBanner">
+      <strong>Hip injury mode is on</strong>
+      Walking-posture goals are paused. If you think your hip may be broken or
+      seriously injured, don't push through it — see a doctor or physiotherapist
+      before continuing to train your walking. You can still log how your hip
+      feels each day so you have a record for your recovery.
+    </div>
+
+    <div class="field">
+      <label>How is your hip today?</label>
+      <div class="seg" id="hipSeg">
+        <button data-status="good">Feeling good</button>
+        <button data-status="sore">Sore / aching</button>
+        <button data-status="injured">Injured / broken</button>
+      </div>
+    </div>
+
+    <div class="field" id="postureField">
+      <label>How straight did you walk today? <span class="hint">(1 = slouched or leaning, 10 = tall and straight)</span></label>
+      <input type="range" id="postureRange" min="1" max="10" step="1" value="7">
+      <div><span class="range-value" id="postureValue">7</span> / 10</div>
+    </div>
+
+    <div class="field">
+      <label>Hip pain level <span class="hint">(0 = no pain, 10 = worst pain)</span></label>
+      <input type="range" id="painRange" min="0" max="10" step="1" value="0">
+      <div><span class="range-value" id="painValue">0</span> / 10</div>
+    </div>
+
+    <div class="field">
+      <label>Notes <span class="hint">(optional — e.g. "leaned left after long sit")</span></label>
+      <textarea id="notes" placeholder="Anything you noticed about your walking today…"></textarea>
+    </div>
+
+    <button class="save-btn" id="saveBtn">Save today's entry</button>
+    <div class="saved-note" id="savedNote"></div>
+  </div>
+
+  <!-- History -->
+  <div class="card history-card">
+    <h2>Last 14 days</h2>
+    <div class="streak" id="streakLabel"></div>
+    <div class="chart" id="chart"></div>
+    <div class="legend">
+      <span style="--dot:#2563eb">Posture score (hip OK)</span>
+      <span style="--dot:#d97706">Hip sore that day</span>
+      <span style="--dot:#dc2626">Hip injured that day</span>
+      <span style="--dot:#e5e7eb">No entry</span>
+    </div>
+    <div class="tips" id="tips"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const STORE_KEY = "walkStraight.entries.v1";
+
+  function loadEntries() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; }
+    catch { return {}; }
+  }
+  function saveEntries(entries) {
+    localStorage.setItem(STORE_KEY, JSON.stringify(entries));
+  }
+  function dateKey(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  const entries = loadEntries();
+  const today = new Date();
+  const todayKey = dateKey(today);
+
+  const el = {
+    todayLabel: document.getElementById("todayLabel"),
+    bodyCard: document.getElementById("bodyCard"),
+    hipLabel: document.getElementById("hipLabel"),
+    hipSeg: document.getElementById("hipSeg"),
+    injuryBanner: document.getElementById("injuryBanner"),
+    postureField: document.getElementById("postureField"),
+    postureRange: document.getElementById("postureRange"),
+    postureValue: document.getElementById("postureValue"),
+    painRange: document.getElementById("painRange"),
+    painValue: document.getElementById("painValue"),
+    notes: document.getElementById("notes"),
+    saveBtn: document.getElementById("saveBtn"),
+    savedNote: document.getElementById("savedNote"),
+    chart: document.getElementById("chart"),
+    streakLabel: document.getElementById("streakLabel"),
+    tips: document.getElementById("tips"),
+  };
+
+  el.todayLabel.textContent = today.toLocaleDateString(undefined, {
+    weekday: "long", year: "numeric", month: "long", day: "numeric",
+  });
+
+  let hipStatus = "good";
+
+  const HIP_LABELS = {
+    good: "Feeling good",
+    sore: "Sore / aching",
+    injured: "Injured / broken",
+  };
+
+  function setHipStatus(status) {
+    hipStatus = status;
+    el.bodyCard.classList.remove("hip-status-good", "hip-status-sore", "hip-status-injured");
+    el.bodyCard.classList.add("hip-status-" + status);
+    el.hipLabel.textContent = HIP_LABELS[status];
+    el.injuryBanner.classList.toggle("show", status === "injured");
+    // When the hip is injured, posture goals are paused: the slider stays
+    // visible but the day is recorded as an injury day, not a posture score.
+    el.postureField.style.opacity = status === "injured" ? "0.45" : "1";
+    el.postureRange.disabled = status === "injured";
+    for (const btn of el.hipSeg.querySelectorAll("button")) {
+      btn.className = btn.dataset.status === status ? "active-" + status : "";
+    }
+    renderTips();
+  }
+
+  el.hipSeg.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-status]");
+    if (btn) setHipStatus(btn.dataset.status);
+  });
+
+  el.postureRange.addEventListener("input", () => {
+    el.postureValue.textContent = el.postureRange.value;
+  });
+  el.painRange.addEventListener("input", () => {
+    el.painValue.textContent = el.painRange.value;
+  });
+
+  function loadToday() {
+    const entry = entries[todayKey];
+    if (!entry) { setHipStatus("good"); return; }
+    setHipStatus(entry.hipStatus || "good");
+    if (entry.posture != null) {
+      el.postureRange.value = entry.posture;
+      el.postureValue.textContent = entry.posture;
+    }
+    el.painRange.value = entry.pain ?? 0;
+    el.painValue.textContent = entry.pain ?? 0;
+    el.notes.value = entry.notes || "";
+  }
+
+  el.saveBtn.addEventListener("click", () => {
+    entries[todayKey] = {
+      hipStatus,
+      posture: hipStatus === "injured" ? null : Number(el.postureRange.value),
+      pain: Number(el.painRange.value),
+      notes: el.notes.value.trim(),
+      savedAt: new Date().toISOString(),
+    };
+    saveEntries(entries);
+    el.savedNote.textContent = "Saved ✓";
+    setTimeout(() => { el.savedNote.textContent = ""; }, 2500);
+    renderHistory();
+  });
+
+  function renderHistory() {
+    el.chart.innerHTML = "";
+    const days = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      days.push(d);
+    }
+    for (const d of days) {
+      const key = dateKey(d);
+      const entry = entries[key];
+      const dayEl = document.createElement("div");
+      dayEl.className = "day";
+      const bar = document.createElement("div");
+      bar.className = "bar";
+      if (!entry) {
+        bar.classList.add("empty");
+        bar.style.height = "6%";
+      } else if (entry.hipStatus === "injured") {
+        bar.classList.add("hip-injured");
+        bar.style.height = "40%";
+        bar.title = `${key}: hip injured, pain ${entry.pain}/10`;
+      } else {
+        if (entry.hipStatus === "sore") bar.classList.add("hip-sore");
+        const score = entry.posture ?? 0;
+        bar.style.height = (score * 10) + "%";
+        bar.title = `${key}: posture ${score}/10, pain ${entry.pain}/10`;
+      }
+      const label = document.createElement("div");
+      label.className = "dlabel";
+      label.textContent = d.toLocaleDateString(undefined, { day: "numeric", month: "numeric" });
+      dayEl.appendChild(bar);
+      dayEl.appendChild(label);
+      el.chart.appendChild(dayEl);
+    }
+
+    // Streak: consecutive days (ending today) with an entry
+    let streak = 0;
+    for (let i = 0; ; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      if (entries[dateKey(d)]) streak++;
+      else break;
+    }
+    el.streakLabel.innerHTML = streak > 0
+      ? `Current streak: <strong>${streak} day${streak === 1 ? "" : "s"}</strong> of daily check-ins`
+      : "No streak yet — save today's entry to start one.";
+
+    renderTips();
+  }
+
+  function renderTips() {
+    const status = hipStatus;
+    if (status === "injured") {
+      el.tips.innerHTML = `
+        <strong>While your hip is injured:</strong>
+        <ul>
+          <li>Get it assessed — a suspected broken hip needs medical attention right away.</li>
+          <li>Keep logging pain daily; your record here can help your doctor see the trend.</li>
+          <li>Resume posture goals only when a professional clears you to walk normally.</li>
+        </ul>`;
+    } else if (status === "sore") {
+      el.tips.innerHTML = `
+        <strong>Tips for a sore hip:</strong>
+        <ul>
+          <li>Shorten your walks today and avoid uneven ground.</li>
+          <li>Gentle hip stretches after warming up can ease stiffness.</li>
+          <li>If soreness lasts more than a few days or gets worse, mark it as injured and get it checked.</li>
+        </ul>`;
+    } else {
+      el.tips.innerHTML = `
+        <strong>Tips for walking straight:</strong>
+        <ul>
+          <li>Imagine a string pulling the top of your head upward.</li>
+          <li>Keep your hips level — avoid dropping one side as you step.</li>
+          <li>Look ahead, not down; your body follows your eyes.</li>
+        </ul>`;
+    }
+  }
+
+  loadToday();
+  renderHistory();
+})();
+</script>
+</body>
+</html>
