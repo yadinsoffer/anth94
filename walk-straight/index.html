@@ -228,6 +228,98 @@
     line-height: 1.55;
   }
   .tips ul { padding-left: 18px; }
+
+  /* ---------- Camera check ---------- */
+  .cam-btn {
+    margin-top: 14px;
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 12px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .cam-note {
+    margin-top: 8px;
+    font-size: 0.78rem;
+    color: var(--muted);
+    line-height: 1.45;
+  }
+  .cam-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 15, 25, 0.96);
+    z-index: 50;
+    padding: 16px;
+    overflow-y: auto;
+  }
+  .cam-overlay.show { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .cam-stage {
+    position: relative;
+    width: min(92vw, 640px);
+    border-radius: 14px;
+    overflow: hidden;
+    background: #000;
+  }
+  .cam-stage video, .cam-stage canvas {
+    display: block;
+    width: 100%;
+    transform: scaleX(-1); /* mirror so it behaves like a mirror */
+  }
+  .cam-stage canvas { position: absolute; inset: 0; height: 100%; }
+  .cam-panel {
+    width: min(92vw, 640px);
+    background: var(--card);
+    border-radius: 14px;
+    padding: 16px 18px;
+  }
+  .cam-score-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .cam-score-row .big {
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--accent);
+  }
+  .cam-score-row .big small { font-size: 1rem; color: var(--muted); font-weight: 600; }
+  .cam-status { font-size: 0.88rem; color: var(--muted); min-height: 1.3em; }
+  .cam-metrics {
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px;
+    margin: 10px 0;
+  }
+  .cam-metrics li {
+    background: var(--bg);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 0.85rem;
+  }
+  .cam-metrics li b { display: block; font-size: 0.78rem; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
+  .cam-metrics li.ok { color: var(--good); }
+  .cam-metrics li.off { color: var(--warn); }
+  .cam-actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  .cam-actions button {
+    flex: 1;
+    min-width: 140px;
+    padding: 12px;
+    border-radius: 10px;
+    border: none;
+    font-size: 0.92rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  #camUseBtn { background: var(--good); color: #fff; }
+  #camUseBtn:disabled { background: #d1d5db; cursor: not-allowed; }
+  #camCloseBtn { background: #374151; color: #fff; }
 </style>
 </head>
 <body>
@@ -266,6 +358,8 @@
       </g>
     </svg>
     <div class="hip-label">Hip status: <strong id="hipLabel">Feeling good</strong></div>
+    <button class="cam-btn" id="camOpenBtn">📷 Check my walking with the camera</button>
+    <div class="cam-note">Walk toward the camera from a few meters away. Video is analyzed on your device and never uploaded.</div>
   </div>
 
   <!-- Daily check-in -->
@@ -322,6 +416,33 @@
       <span style="--dot:#e5e7eb">No entry</span>
     </div>
     <div class="tips" id="tips"></div>
+  </div>
+</div>
+
+<!-- Camera walking check overlay -->
+<div class="cam-overlay" id="camOverlay">
+  <div class="cam-stage">
+    <video id="camVideo" playsinline muted></video>
+    <canvas id="camCanvas"></canvas>
+  </div>
+  <div class="cam-panel">
+    <div class="cam-score-row">
+      <div>
+        <h2>Walking check</h2>
+        <div class="cam-status" id="camStatus">Starting…</div>
+      </div>
+      <div class="big"><span id="camScore">–</span><small> / 10</small></div>
+    </div>
+    <ul class="cam-metrics">
+      <li id="mHips"><b>Hips</b>–</li>
+      <li id="mShoulders"><b>Shoulders</b>–</li>
+      <li id="mLean"><b>Upright lean</b>–</li>
+      <li id="mHead"><b>Head</b>–</li>
+    </ul>
+    <div class="cam-actions">
+      <button id="camUseBtn" disabled>Use score in today's check-in</button>
+      <button id="camCloseBtn">Close</button>
+    </div>
   </div>
 </div>
 
@@ -515,6 +636,191 @@
 
   loadToday();
   renderHistory();
+
+  /* ---------- Camera walking check ----------
+   * Uses MediaPipe Pose (loaded from a CDN, runs entirely on-device) to
+   * watch you walk and score how straight you are: level hips, level
+   * shoulders, upright torso, centered head.
+   */
+  const MP_CDN = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+  const MP_MODEL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
+
+  const cam = {
+    overlay: document.getElementById("camOverlay"),
+    video: document.getElementById("camVideo"),
+    canvas: document.getElementById("camCanvas"),
+    status: document.getElementById("camStatus"),
+    score: document.getElementById("camScore"),
+    mHips: document.getElementById("mHips"),
+    mShoulders: document.getElementById("mShoulders"),
+    mLean: document.getElementById("mLean"),
+    mHead: document.getElementById("mHead"),
+    openBtn: document.getElementById("camOpenBtn"),
+    useBtn: document.getElementById("camUseBtn"),
+    closeBtn: document.getElementById("camCloseBtn"),
+  };
+
+  let camRun = null; // { stream, landmarker, raf, scores, smooth }
+
+  function metric(li, label, ok, text) {
+    li.innerHTML = `<b>${label}</b>${text}`;
+    li.className = ok ? "ok" : "off";
+  }
+
+  // Angle of the a→b line from horizontal, folded into [0, 90] degrees.
+  function tiltFromHorizontal(a, b) {
+    let deg = Math.abs(Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI);
+    if (deg > 90) deg = 180 - deg;
+    return deg;
+  }
+
+  function analyzePose(lm) {
+    const lSh = lm[11], rSh = lm[12], lHip = lm[23], rHip = lm[24], nose = lm[0];
+    const hipTilt = tiltFromHorizontal(lHip, rHip);
+    const shTilt = tiltFromHorizontal(lSh, rSh);
+    const midSh = { x: (lSh.x + rSh.x) / 2, y: (lSh.y + rSh.y) / 2 };
+    const midHip = { x: (lHip.x + rHip.x) / 2, y: (lHip.y + rHip.y) / 2 };
+    const lean = Math.abs(Math.atan2(midSh.x - midHip.x, midHip.y - midSh.y) * 180 / Math.PI);
+    const shoulderWidth = Math.abs(lSh.x - rSh.x) || 1e-6;
+    const headOffset = Math.abs(nose.x - midSh.x) / shoulderWidth * 45; // scale-free, in pseudo-degrees
+    // 10 minus weighted penalties; a few degrees of tilt already costs points.
+    const score = Math.max(1, Math.min(10, 10 - (hipTilt * 0.35 + shTilt * 0.25 + lean * 0.3 + headOffset * 0.1)));
+    return { hipTilt, shTilt, lean, headOffset, score,
+             lHipLower: lHip.y > rHip.y, lShLower: lSh.y > rSh.y,
+             leanLeft: midSh.x < midHip.x };
+  }
+
+  function drawPose(ctx, lm, w, h) {
+    const pairs = [[11,12],[23,24],[11,23],[12,24],[11,13],[13,15],[12,14],[14,16],[23,25],[25,27],[24,26],[26,28]];
+    ctx.clearRect(0, 0, w, h);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    for (const [a, b] of pairs) {
+      ctx.beginPath();
+      ctx.moveTo(lm[a].x * w, lm[a].y * h);
+      ctx.lineTo(lm[b].x * w, lm[b].y * h);
+      ctx.stroke();
+    }
+    // hips highlighted in the current hip-status color
+    const hipColor = getComputedStyle(cam.overlay).getPropertyValue("--hip-glow") || "#2563eb";
+    ctx.fillStyle = hipColor;
+    for (const i of [23, 24]) {
+      ctx.beginPath();
+      ctx.arc(lm[i].x * w, lm[i].y * h, 10, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  async function openCamera() {
+    cam.overlay.classList.add("show");
+    cam.overlay.classList.add("hip-status-" + hipStatus);
+    cam.useBtn.disabled = true;
+    cam.score.textContent = "–";
+    cam.status.textContent = "Loading pose model… (needs internet the first time)";
+
+    let vision, landmarker;
+    try {
+      vision = await import(MP_CDN);
+      const fileset = await vision.FilesetResolver.forVisionTasks(MP_CDN + "/wasm");
+      landmarker = await vision.PoseLandmarker.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: MP_MODEL, delegate: "GPU" },
+        runningMode: "VIDEO",
+        numPoses: 1,
+      });
+    } catch (e) {
+      cam.status.textContent = "Couldn't load the pose model — check your internet connection and try again.";
+      return;
+    }
+
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
+      });
+    } catch (e) {
+      cam.status.textContent = e.name === "NotFoundError"
+        ? "No camera found on this device."
+        : "Camera access was blocked. Allow camera permission (the page must be opened via http://localhost or https, not a file).";
+      landmarker.close();
+      return;
+    }
+
+    cam.video.srcObject = stream;
+    await cam.video.play();
+    cam.canvas.width = cam.video.videoWidth;
+    cam.canvas.height = cam.video.videoHeight;
+    const ctx = cam.canvas.getContext("2d");
+
+    camRun = { stream, landmarker, raf: 0, scores: [], smooth: null };
+    cam.status.textContent = "Walk toward the camera, then back away. Keep your whole body in frame.";
+    let lastVideoTime = -1;
+
+    const loop = () => {
+      if (!camRun) return;
+      if (cam.video.currentTime !== lastVideoTime) {
+        lastVideoTime = cam.video.currentTime;
+        const res = landmarker.detectForVideo(cam.video, performance.now());
+        const lm = res.landmarks && res.landmarks[0];
+        if (lm) {
+          const m = analyzePose(lm);
+          // exponential smoothing so the readout doesn't flicker
+          camRun.smooth = camRun.smooth
+            ? Object.fromEntries(Object.keys(m).map(k => [k,
+                typeof m[k] === "number" ? camRun.smooth[k] * 0.85 + m[k] * 0.15 : m[k]]))
+            : m;
+          const s = camRun.smooth;
+          camRun.scores.push(s.score);
+          if (camRun.scores.length > 300) camRun.scores.shift();
+
+          drawPose(ctx, lm, cam.canvas.width, cam.canvas.height);
+          cam.score.textContent = s.score.toFixed(1);
+          metric(cam.mHips, "Hips", s.hipTilt < 4,
+            s.hipTilt < 4 ? "Level ✓" : `${m.lHipLower ? "Left" : "Right"} hip drops ${s.hipTilt.toFixed(0)}°`);
+          metric(cam.mShoulders, "Shoulders", s.shTilt < 4,
+            s.shTilt < 4 ? "Level ✓" : `${m.lShLower ? "Left" : "Right"} side low ${s.shTilt.toFixed(0)}°`);
+          metric(cam.mLean, "Upright lean", s.lean < 5,
+            s.lean < 5 ? "Upright ✓" : `Leaning ${m.leanLeft ? "left" : "right"} ${s.lean.toFixed(0)}°`);
+          metric(cam.mHead, "Head", s.headOffset < 5,
+            s.headOffset < 5 ? "Centered ✓" : "Drifting off-center");
+          cam.useBtn.disabled = camRun.scores.length < 30; // ~1s of tracking first
+          cam.status.textContent = "Tracking you — walk naturally.";
+        } else {
+          ctx.clearRect(0, 0, cam.canvas.width, cam.canvas.height);
+          cam.status.textContent = "No person detected — step back so your whole body is in frame.";
+        }
+      }
+      camRun.raf = requestAnimationFrame(loop);
+    };
+    loop();
+  }
+
+  function closeCamera() {
+    if (camRun) {
+      cancelAnimationFrame(camRun.raf);
+      camRun.stream.getTracks().forEach(t => t.stop());
+      camRun.landmarker.close();
+      camRun = null;
+    }
+    cam.video.srcObject = null;
+    cam.overlay.className = "cam-overlay";
+  }
+
+  cam.openBtn.addEventListener("click", openCamera);
+  cam.closeBtn.addEventListener("click", closeCamera);
+  cam.useBtn.addEventListener("click", () => {
+    const avg = camRun.scores.reduce((a, b) => a + b, 0) / camRun.scores.length;
+    const rounded = Math.max(1, Math.min(10, Math.round(avg)));
+    closeCamera();
+    if (hipStatus !== "injured") {
+      el.postureRange.value = rounded;
+      el.postureValue.textContent = rounded;
+    }
+    el.notes.value = (el.notes.value ? el.notes.value + "\n" : "") +
+      `Camera walking check: ${avg.toFixed(1)}/10`;
+    el.savedNote.textContent = "Camera score filled in — press Save to keep it.";
+    setTimeout(() => { el.savedNote.textContent = ""; }, 5000);
+  });
 })();
 </script>
 </body>
