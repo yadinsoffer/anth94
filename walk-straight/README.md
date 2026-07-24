@@ -15,12 +15,14 @@ then open <http://localhost:8000>.
 
 ## Features
 
-- **Camera walking check**: point your camera at yourself and walk — on-device
-  pose detection (MediaPipe Pose, loaded from a CDN on first use) watches
-  whether your hips and shoulders stay level, your torso stays upright, and
-  your head stays centered, then scores your walk out of 10. The score can be
-  dropped straight into today's check-in. Video is processed locally and
-  never uploaded.
+- **Guided camera walking check**: a fully hands-free, spoken session. The
+  app checks your whole body is in frame (and says what to fix if not —
+  "step back", "tilt the camera down"), then talks you through walking
+  toward the camera, turning around, and walking away. It announces when it
+  has enough data, reports what it found (hip drop, shoulder tilt, lean,
+  head drift) with plain-language advice, and saves the score to today's
+  check-in automatically. On-device pose detection (MediaPipe Pose, loaded
+  from a CDN on first use); video is processed locally and never uploaded.
 - **Human body figure** with both hips marked; the markers change color with
   your hip status (green = good, amber = sore, red = injured).
 - **Daily check-in**: rate how straight you walked (1–10), log hip pain

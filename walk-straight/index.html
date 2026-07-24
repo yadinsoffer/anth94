@@ -268,9 +268,59 @@
   .cam-stage video, .cam-stage canvas {
     display: block;
     width: 100%;
+    height: 100%;
     transform: scaleX(-1); /* mirror so it behaves like a mirror */
   }
-  .cam-stage canvas { position: absolute; inset: 0; height: 100%; }
+  .cam-stage canvas { position: absolute; inset: 0; }
+  .cam-instruction {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    padding: 26px 16px 14px;
+    background: linear-gradient(transparent, rgba(0,0,0,0.78) 45%);
+    color: #fff;
+    font-size: 1.15rem;
+    font-weight: 700;
+    text-align: center;
+    line-height: 1.35;
+  }
+  .cam-progress {
+    height: 10px;
+    background: #e5e7eb;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 10px;
+  }
+  .cam-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    border-radius: 6px;
+    transition: width 0.3s;
+  }
+  .cam-report .score-line {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin: 6px 0 10px;
+  }
+  .cam-report .score-line .num {
+    font-size: 2.2rem;
+    font-weight: 800;
+    color: var(--accent);
+  }
+  .cam-report .advice {
+    margin-top: 10px;
+    font-size: 0.9rem;
+    line-height: 1.55;
+  }
+  .cam-report .advice ul { padding-left: 18px; }
+  .cam-report .saved {
+    margin-top: 10px;
+    color: var(--good);
+    font-weight: 700;
+    font-size: 0.9rem;
+  }
+  #camAgainBtn { background: var(--accent); color: #fff; }
   .cam-panel {
     width: min(92vw, 640px);
     background: var(--card);
@@ -421,26 +471,17 @@
 
 <!-- Camera walking check overlay -->
 <div class="cam-overlay" id="camOverlay">
-  <div class="cam-stage">
+  <div class="cam-stage" id="camStage">
     <video id="camVideo" playsinline muted></video>
     <canvas id="camCanvas"></canvas>
+    <div class="cam-instruction" id="camInstruction">Starting…</div>
   </div>
   <div class="cam-panel">
-    <div class="cam-score-row">
-      <div>
-        <h2>Walking check</h2>
-        <div class="cam-status" id="camStatus">Starting…</div>
-      </div>
-      <div class="big"><span id="camScore">–</span><small> / 10</small></div>
-    </div>
-    <ul class="cam-metrics">
-      <li id="mHips"><b>Hips</b>–</li>
-      <li id="mShoulders"><b>Shoulders</b>–</li>
-      <li id="mLean"><b>Upright lean</b>–</li>
-      <li id="mHead"><b>Head</b>–</li>
-    </ul>
+    <div class="cam-progress" id="camProgressWrap"><div class="cam-progress-fill" id="camProgress"></div></div>
+    <div class="cam-status" id="camStatus">Loading…</div>
+    <div class="cam-report" id="camReport" hidden></div>
     <div class="cam-actions">
-      <button id="camUseBtn" disabled>Use score in today's check-in</button>
+      <button id="camAgainBtn" hidden>Check again</button>
       <button id="camCloseBtn">Close</button>
     </div>
   </div>
@@ -647,24 +688,35 @@
 
   const cam = {
     overlay: document.getElementById("camOverlay"),
+    stage: document.getElementById("camStage"),
     video: document.getElementById("camVideo"),
     canvas: document.getElementById("camCanvas"),
+    instruction: document.getElementById("camInstruction"),
     status: document.getElementById("camStatus"),
-    score: document.getElementById("camScore"),
-    mHips: document.getElementById("mHips"),
-    mShoulders: document.getElementById("mShoulders"),
-    mLean: document.getElementById("mLean"),
-    mHead: document.getElementById("mHead"),
+    progress: document.getElementById("camProgress"),
+    progressWrap: document.getElementById("camProgressWrap"),
+    report: document.getElementById("camReport"),
     openBtn: document.getElementById("camOpenBtn"),
-    useBtn: document.getElementById("camUseBtn"),
+    againBtn: document.getElementById("camAgainBtn"),
     closeBtn: document.getElementById("camCloseBtn"),
   };
 
-  let camRun = null; // { stream, landmarker, raf, scores, smooth }
+  let camRun = null;
 
-  function metric(li, label, ok, text) {
-    li.innerHTML = `<b>${label}</b>${text}`;
-    li.className = ok ? "ok" : "off";
+  // Spoken + written instructions, so she can hear what to do from across
+  // the room. Repeats an unchanged instruction every few seconds.
+  const speech = { last: "", at: 0 };
+  function say(text) {
+    cam.instruction.textContent = text;
+    if (!("speechSynthesis" in window)) return;
+    const now = performance.now();
+    if (text === speech.last && now - speech.at < 7000) return;
+    speech.last = text;
+    speech.at = now;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 0.95;
+    speechSynthesis.speak(u);
   }
 
   // Angle of the a→b line from horizontal, folded into [0, 90] degrees.
@@ -711,12 +763,47 @@
     }
   }
 
+  // Is the whole body in frame? If not, say exactly what's cut off.
+  function framedCheck(lm) {
+    const vis = i => (lm[i].visibility ?? 1) > 0.5;
+    const inY = i => lm[i].y > 0.02 && lm[i].y < 0.99;
+    const inX = i => lm[i].x > 0.03 && lm[i].x < 0.97;
+    if (!vis(0) || !inY(0))
+      return { ok: false, msg: "I can't see your head — step back, or tilt the camera up." };
+    if (!vis(27) || !vis(28) || !inY(27) || !inY(28))
+      return { ok: false, msg: "I can't see your legs and feet — step back, or lean the camera against something so it sees the floor." };
+    if (!inX(11) || !inX(12) || !inX(23) || !inX(24))
+      return { ok: false, msg: "Move to the middle of the picture." };
+    return { ok: true };
+  }
+
+  // Fit the video stage to the camera's real shape so nothing gets cropped.
+  function fitStage() {
+    const vw = cam.video.videoWidth, vh = cam.video.videoHeight;
+    if (!vw || !vh) return;
+    const maxW = Math.min(window.innerWidth * 0.92, 640);
+    const maxH = window.innerHeight * 0.55;
+    const scale = Math.min(maxW / vw, maxH / vh);
+    cam.stage.style.width = (vw * scale) + "px";
+    cam.stage.style.height = (vh * scale) + "px";
+  }
+  window.addEventListener("resize", fitStage);
+
+  const WALK_MS = 8000;   // data needed per direction
+  const TURN_MS = 3500;   // pause while she turns around
+  const STABLE_MS = 1200; // how long the framing must hold before we start
+
   async function openCamera() {
     cam.overlay.classList.add("show");
     cam.overlay.classList.add("hip-status-" + hipStatus);
-    cam.useBtn.disabled = true;
-    cam.score.textContent = "–";
+    cam.report.hidden = true;
+    cam.report.innerHTML = "";
+    cam.againBtn.hidden = true;
+    cam.progressWrap.style.display = "";
+    cam.progress.style.width = "0%";
     cam.status.textContent = "Loading pose model… (needs internet the first time)";
+    cam.instruction.textContent = "One moment…";
+    speech.last = "";
 
     let vision, landmarker;
     try {
@@ -729,19 +816,21 @@
       });
     } catch (e) {
       cam.status.textContent = "Couldn't load the pose model — check your internet connection and try again.";
+      cam.instruction.textContent = "Something went wrong.";
       return;
     }
 
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false,
       });
     } catch (e) {
       cam.status.textContent = e.name === "NotFoundError"
         ? "No camera found on this device."
         : "Camera access was blocked. Allow camera permission (the page must be opened via http://localhost or https, not a file).";
+      cam.instruction.textContent = "Something went wrong.";
       landmarker.close();
       return;
     }
@@ -750,49 +839,183 @@
     await cam.video.play();
     cam.canvas.width = cam.video.videoWidth;
     cam.canvas.height = cam.video.videoHeight;
+    fitStage();
     const ctx = cam.canvas.getContext("2d");
 
-    camRun = { stream, landmarker, raf: 0, scores: [], smooth: null };
-    cam.status.textContent = "Walk toward the camera, then back away. Keep your whole body in frame.";
+    camRun = {
+      stream, landmarker, raf: 0,
+      phase: "frame",          // frame → toward → turn → away → done
+      phaseStart: performance.now(),
+      stableSince: null,
+      collectedMs: 0,          // framed walking time collected this phase
+      samples: [],             // pose metrics from both walking phases
+      smooth: null,
+      lastFrameAt: performance.now(),
+    };
+    cam.status.textContent = "Follow the spoken instructions — it will tell you when it's done.";
     let lastVideoTime = -1;
 
     const loop = () => {
       if (!camRun) return;
+      const now = performance.now();
+
       if (cam.video.currentTime !== lastVideoTime) {
         lastVideoTime = cam.video.currentTime;
-        const res = landmarker.detectForVideo(cam.video, performance.now());
+        const dt = Math.min(now - camRun.lastFrameAt, 250);
+        camRun.lastFrameAt = now;
+        const res = landmarker.detectForVideo(cam.video, now);
         const lm = res.landmarks && res.landmarks[0];
-        if (lm) {
-          const m = analyzePose(lm);
-          // exponential smoothing so the readout doesn't flicker
-          camRun.smooth = camRun.smooth
-            ? Object.fromEntries(Object.keys(m).map(k => [k,
-                typeof m[k] === "number" ? camRun.smooth[k] * 0.85 + m[k] * 0.15 : m[k]]))
-            : m;
-          const s = camRun.smooth;
-          camRun.scores.push(s.score);
-          if (camRun.scores.length > 300) camRun.scores.shift();
+        if (lm) drawPose(ctx, lm, cam.canvas.width, cam.canvas.height);
+        else ctx.clearRect(0, 0, cam.canvas.width, cam.canvas.height);
 
-          drawPose(ctx, lm, cam.canvas.width, cam.canvas.height);
-          cam.score.textContent = s.score.toFixed(1);
-          metric(cam.mHips, "Hips", s.hipTilt < 4,
-            s.hipTilt < 4 ? "Level ✓" : `${m.lHipLower ? "Left" : "Right"} hip drops ${s.hipTilt.toFixed(0)}°`);
-          metric(cam.mShoulders, "Shoulders", s.shTilt < 4,
-            s.shTilt < 4 ? "Level ✓" : `${m.lShLower ? "Left" : "Right"} side low ${s.shTilt.toFixed(0)}°`);
-          metric(cam.mLean, "Upright lean", s.lean < 5,
-            s.lean < 5 ? "Upright ✓" : `Leaning ${m.leanLeft ? "left" : "right"} ${s.lean.toFixed(0)}°`);
-          metric(cam.mHead, "Head", s.headOffset < 5,
-            s.headOffset < 5 ? "Centered ✓" : "Drifting off-center");
-          cam.useBtn.disabled = camRun.scores.length < 30; // ~1s of tracking first
-          cam.status.textContent = "Tracking you — walk naturally.";
-        } else {
-          ctx.clearRect(0, 0, cam.canvas.width, cam.canvas.height);
-          cam.status.textContent = "No person detected — step back so your whole body is in frame.";
+        const framed = lm ? framedCheck(lm) : { ok: false, msg: "Stand in front of the camera so I can see you." };
+
+        switch (camRun.phase) {
+          case "frame": {
+            if (!framed.ok) {
+              camRun.stableSince = null;
+              say(framed.msg);
+            } else {
+              if (camRun.stableSince == null) camRun.stableSince = now;
+              say("Perfect, stay there…");
+              if (now - camRun.stableSince > STABLE_MS) {
+                camRun.phase = "toward";
+                camRun.phaseStart = now;
+                camRun.collectedMs = 0;
+                camRun.lastFrameAt = now;
+                speech.last = "";
+              }
+            }
+            break;
+          }
+          case "toward":
+          case "away": {
+            if (!framed.ok) {
+              say(framed.msg);
+            } else {
+              camRun.collectedMs += dt;
+              const m = analyzePose(lm);
+              camRun.smooth = camRun.smooth
+                ? Object.fromEntries(Object.keys(m).map(k => [k,
+                    typeof m[k] === "number" ? camRun.smooth[k] * 0.85 + m[k] * 0.15 : m[k]]))
+                : m;
+              camRun.samples.push({ ...m, phase: camRun.phase });
+              if (camRun.phase === "toward") {
+                say("Walk toward the camera, nice and natural.");
+                if (camRun.collectedMs >= WALK_MS) {
+                  camRun.phase = "turn";
+                  camRun.phaseStart = now;
+                  speech.last = "";
+                  say("Good! Now turn around, and walk away from the camera.");
+                }
+              } else {
+                say("Keep going, walk away from the camera.");
+                if (camRun.collectedMs >= WALK_MS) {
+                  camRun.phase = "done";
+                  speech.last = "";
+                  finishSession();
+                  return;
+                }
+              }
+            }
+            const total = (camRun.phase === "away" ? WALK_MS : 0) + camRun.collectedMs;
+            cam.progress.style.width = Math.min(100, total / (2 * WALK_MS) * 100) + "%";
+            break;
+          }
+          case "turn": {
+            if (now - camRun.phaseStart > TURN_MS) {
+              camRun.phase = "away";
+              camRun.collectedMs = 0;
+              camRun.smooth = null;
+            }
+            break;
+          }
         }
       }
       camRun.raf = requestAnimationFrame(loop);
     };
     loop();
+  }
+
+  function finishSession() {
+    const samples = camRun.samples;
+    // stop the camera; keep the overlay open for the report
+    cancelAnimationFrame(camRun.raf);
+    camRun.stream.getTracks().forEach(t => t.stop());
+    camRun.landmarker.close();
+    camRun = null;
+    cam.video.srcObject = null;
+    cam.progress.style.width = "100%";
+
+    const avg = key => samples.reduce((a, s) => a + s[key], 0) / samples.length;
+    const frac = key => samples.filter(s => s[key]).length / samples.length;
+    const hipTilt = avg("hipTilt"), shTilt = avg("shTilt"), lean = avg("lean"), head = avg("headOffset");
+    const score = Math.max(1, Math.min(10, avg("score")));
+    const hipSide = frac("lHipLower") > 0.5 ? "left" : "right";
+    const shSide = frac("lShLower") > 0.5 ? "left" : "right";
+    const leanSide = frac("leanLeft") > 0.5 ? "left" : "right";
+
+    const findings = [];
+    const advice = [];
+    if (hipTilt >= 4) {
+      findings.push({ ok: false, label: "Hips", text: `Your ${hipSide} hip drops about ${hipTilt.toFixed(0)}° when you walk.` });
+      advice.push(`Work on keeping your hips level — imagine your belt staying flat. Gentle practice: stand on one leg for a few seconds while holding a counter, a few times a day.`);
+    } else {
+      findings.push({ ok: true, label: "Hips", text: "Your hips stay nice and level. ✓" });
+    }
+    if (shTilt >= 4) {
+      findings.push({ ok: false, label: "Shoulders", text: `Your ${shSide} shoulder rides lower by about ${shTilt.toFixed(0)}°.` });
+      advice.push(`Think of carrying two equally heavy shopping bags so both shoulders stay level.`);
+    } else {
+      findings.push({ ok: true, label: "Shoulders", text: "Your shoulders stay level. ✓" });
+    }
+    if (lean >= 5) {
+      findings.push({ ok: false, label: "Upright posture", text: `You lean to the ${leanSide} by about ${lean.toFixed(0)}°.` });
+      advice.push(`Imagine a string gently pulling the top of your head straight up toward the ceiling.`);
+    } else {
+      findings.push({ ok: true, label: "Upright posture", text: "You walk nice and upright. ✓" });
+    }
+    if (head >= 5) {
+      findings.push({ ok: false, label: "Head", text: "Your head drifts off-center while you walk." });
+      advice.push(`Pick a point at eye level ahead of you and keep your eyes on it while walking.`);
+    } else {
+      findings.push({ ok: true, label: "Head", text: "Your head stays centered. ✓" });
+    }
+    if (advice.length === 0) advice.push("You're walking straight — keep doing what you're doing!");
+    if (hipStatus === "injured") advice.push("Your hip is marked as injured — take this gently and follow your doctor's guidance.");
+
+    say(`All done, I have enough data. Your walking score is ${score.toFixed(1)} out of 10.`);
+    cam.status.textContent = "Check complete.";
+    cam.progressWrap.style.display = "none";
+    cam.report.hidden = false;
+    cam.report.innerHTML = `
+      <div class="score-line"><span class="num">${score.toFixed(1)}</span><span>/ 10 walking score</span></div>
+      <ul class="cam-metrics">
+        ${findings.map(f => `<li class="${f.ok ? "ok" : "off"}"><b>${f.label}</b>${f.text}</li>`).join("")}
+      </ul>
+      <div class="advice"><strong>What to work on:</strong><ul>${advice.map(a => `<li>${a}</li>`).join("")}</ul></div>
+      <div class="saved">Saved to today's check-in ✓</div>`;
+    cam.againBtn.hidden = false;
+
+    // Save automatically — no extra buttons to press.
+    const rounded = Math.max(1, Math.min(10, Math.round(score)));
+    if (hipStatus !== "injured") {
+      el.postureRange.value = rounded;
+      el.postureValue.textContent = rounded;
+    }
+    const note = `Camera walking check: ${score.toFixed(1)}/10`;
+    if (!el.notes.value.includes(note)) {
+      el.notes.value = (el.notes.value ? el.notes.value + "\n" : "") + note;
+    }
+    entries[todayKey] = {
+      hipStatus,
+      posture: hipStatus === "injured" ? null : rounded,
+      pain: Number(el.painRange.value),
+      notes: el.notes.value.trim(),
+      savedAt: new Date().toISOString(),
+    };
+    saveEntries(entries);
+    renderHistory();
   }
 
   function closeCamera() {
@@ -802,25 +1025,16 @@
       camRun.landmarker.close();
       camRun = null;
     }
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
     cam.video.srcObject = null;
     cam.overlay.className = "cam-overlay";
+    cam.stage.style.width = "";
+    cam.stage.style.height = "";
   }
 
   cam.openBtn.addEventListener("click", openCamera);
+  cam.againBtn.addEventListener("click", () => { closeCamera(); openCamera(); });
   cam.closeBtn.addEventListener("click", closeCamera);
-  cam.useBtn.addEventListener("click", () => {
-    const avg = camRun.scores.reduce((a, b) => a + b, 0) / camRun.scores.length;
-    const rounded = Math.max(1, Math.min(10, Math.round(avg)));
-    closeCamera();
-    if (hipStatus !== "injured") {
-      el.postureRange.value = rounded;
-      el.postureValue.textContent = rounded;
-    }
-    el.notes.value = (el.notes.value ? el.notes.value + "\n" : "") +
-      `Camera walking check: ${avg.toFixed(1)}/10`;
-    el.savedNote.textContent = "Camera score filled in — press Save to keep it.";
-    setTimeout(() => { el.savedNote.textContent = ""; }, 5000);
-  });
 })();
 </script>
 </body>
